@@ -70,6 +70,47 @@ Core principle:
 
 # Phase 1 - MVP Demo
 
+Technology choices for this phase are recorded in [Phase 1 Technology Decisions](phase1_technology_decisions.md).
+
+## Scaffold Steps
+
+Complete these before any pipeline work. Each step should leave the project in a verifiable state.
+
+1. **Compose skeleton.**
+   Create `compose.yaml` with three services: `app` built from `python:3.12-slim`, `db` using `pgvector/pgvector:pg17`, and `ollama` using `ollama/ollama` with a GPU reservation and a named volume for model weights.
+   Bind-mount the documents directory read-only as `./documents:/data/documents:ro`.
+   Verify: `docker compose up -d` leaves all three services healthy.
+
+2. **Application image and dependencies.**
+   Write the `app` Dockerfile installing `poppler-utils` and using `uv` to install from `pyproject.toml`. Commit `uv.lock`.
+   Verify: `docker compose run --rm app python -c "import mcp, mrz, sqlalchemy"` succeeds.
+
+3. **GPU and model availability.**
+   Pull `qwen2.5vl:7b` into the `ollama` volume.
+   Verify: the model responds to a request from the `app` container, and `nvidia-smi` inside the `ollama` container reports the expected VRAM.
+
+4. **Database schema.**
+   Configure Alembic and create the initial migration for the Phase 1 subset of the storage model: `source_items`, `documents`, and `document_versions`.
+   `document_versions` carries the universal core as typed columns and a JSONB column for type-dependent fields, per the document model in the technology decisions. There is no `document_fields` table.
+   Verify: `docker compose run --rm app alembic upgrade head` applies cleanly to an empty database.
+
+5. **Configuration and logging.**
+   Add `pydantic-settings` configuration loaded from the environment, with `.env.example` committed and `.env` ignored. Initialize `structlog`.
+   Verify: the app starts with no `.env` present and reports which settings are missing.
+
+6. **Synthetic test fixtures.**
+   Add a generator that renders passport-like images with valid MRZ lines, and produce the demo set: one expired passport, one valid passport, and unrelated documents.
+   Cover multiple issuing countries and the issuer-dependent MRZ cases listed in the technology decisions, including a document number longer than 9 characters and a passport with no MRZ.
+   Verify: generated MRZ lines pass check-digit validation, and no fixture contains real personal data.
+
+7. **Test harness.**
+   Wire up `pytest`, `ruff`, and `mypy` to run inside the container.
+   Verify: `docker compose run --rm app pytest` collects and passes a placeholder test.
+
+8. **MCP transport.**
+   Stand up the MCP server over streamable HTTP with a single health tool, and commit `.cursor/mcp.json` pointing at its URL.
+   Verify: Cursor lists the server and can call the health tool.
+
 ## User Story
 
 > As a user, I want to ask: "What is my passport number?" and receive the correct passport number from documents stored in a local directory.
@@ -124,19 +165,27 @@ For every file:
 7. Index searchable text.
 8. Record the source file path.
 
-Example normalized document:
+Example normalized document, separating the universal core from the type-dependent payload:
 
 ```json
 {
-  "document_type": "passport",
-  "person_name": "Person A",
-  "document_number": "AB123456",
-  "issued_at": "2024-05-10",
-  "expires_at": "2034-05-10",
-  "country": "Canada",
-  "source_path": "/documents/passport_new.jpg"
+  "document_kind": "passport",
+  "issuer": "CA",
+  "subject_type": "person",
+  "version_date": "2024-05-10",
+  "version_date_source": "issued_at",
+  "validity_status": "current",
+  "source_path": "/documents/passport_new.jpg",
+  "fields": {
+    "document_number": { "value": "AB123456", "confidence": 0.99, "provenance": "mrz" },
+    "holder_name":     { "value": "Person A", "confidence": 0.94, "provenance": "mrz" },
+    "issued_at":       { "value": "2024-05-10", "confidence": 0.9, "provenance": "viz" },
+    "expires_at":      { "value": "2034-05-10", "confidence": 0.99, "provenance": "mrz" }
+  }
 }
 ```
+
+Only the core keys are guaranteed. Everything under `fields` depends on `document_kind`: a Ukrainian internal passport booklet has no `expires_at` at all, and a vehicle registration card has no person.
 
 ## Version Selection
 
@@ -158,6 +207,22 @@ What is my passport number?
 ```
 
 the system should normally return the current valid passport, not the first matching file.
+
+Ranking signals are type-dependent, however. Expiry date and issue date are not present on every document type, so ranking must degrade to the universal `version_date` rather than assume a date exists. Validity is resolved by a per-type strategy, not a date comparison. See the document model in [Phase 1 Technology Decisions](phase1_technology_decisions.md).
+
+### Logical document identity
+
+Passports may come from several issuing countries, so a holder with dual citizenship can have two simultaneously valid passports. Ranking by expiry date alone would pick one arbitrarily and present it as *the* answer, which is wrong rather than merely incomplete.
+
+Issuer is therefore part of logical document identity, not a mere extracted field. So is the subject, which is not always a person and may be absent entirely:
+
+```text
+logical document = (document kind, issuer, subject)
+```
+
+A Ukrainian passport and a Ukrainian internal passport are different kinds, so they are different logical documents rather than versions of one. Two issuers mean two logical documents, each with its own version chain of superseded and current documents. A vehicle registration card has a vehicle as its subject and may have no person at all; a null subject is a legitimate value.
+
+When a query matches more than one logical document, the system must return all current matches with their kinds and issuers rather than silently choosing between them. Ambiguity should be surfaced, not resolved by ranking.
 
 ## Output
 
@@ -193,21 +258,19 @@ No dedicated web UI is required for Phase 1.
 
 ## MVP Technology
 
-Suggested stack:
+The resolved stack, the alternatives rejected, and the reasoning are in [Phase 1 Technology Decisions](phase1_technology_decisions.md). In summary:
 
-- Python
-- FastAPI or lightweight service layer
-- MCP server
-- PostgreSQL
-- pgvector only if semantic retrieval is actually needed
-- PostgreSQL full-text search
-- local filesystem source adapter
-- OCR / vision model
-- Pydantic schemas
-- SQLAlchemy
-- pytest
+- Python, running entirely in Docker Compose with dependencies managed by `uv`
+- MCP server over streamable HTTP, with a Typer CLI as a development client
+- PostgreSQL with SQLAlchemy and Alembic
+- local filesystem source adapter, mounted read-only
+- Qwen2.5-VL served by Ollama on the local GPU, for text extraction from scans and photos
+- MRZ parsing with check-digit validation as the primary passport extraction path
+- Pydantic schemas throughout, and pytest
 
-For this phase, PostgreSQL metadata search may be sufficient before adding embeddings.
+PostgreSQL metadata search is sufficient for this phase. Full-text search, pgvector, embeddings, and a separate HTTP API are deliberately deferred; the target query resolves through structured metadata alone.
+
+No language model runs inside the application in this phase. The MCP client interprets the user's question and selects a tool; FileBrownie exposes deterministic tools. The only unavoidable model is the vision model that turns a scan into text.
 
 ## MVP Success Criteria
 
@@ -849,7 +912,6 @@ source_items
 documents
 document_versions
 document_chunks
-document_fields
 entities
 entity_relationships
 processing_jobs
@@ -862,8 +924,10 @@ Example:
 documents
 ---------
 id
-logical_document_type
-owner_entity_id
+document_kind
+issuer
+subject_type
+subject_id
 current_version_id
 created_at
 
@@ -873,22 +937,27 @@ id
 document_id
 source_item_id
 content_hash
-issued_at
-expires_at
-status
+version_date
+version_date_source
+validity_status
+processing_state
 extraction_confidence
-
-document_fields
----------------
-id
-document_version_id
-field_name
-encrypted_value
-confidence
-provenance
+fields            (jsonb)
 ```
 
-Sensitive field values should be encrypted independently if practical.
+`documents` is keyed by the logical identity `(document_kind, issuer, subject)`, where `subject_type` and `subject_id` are nullable because not every document concerns a person or any entity at all.
+
+`document_versions` holds the universal core as typed columns. Only these are guaranteed present on every document. All type-dependent fields live in the `fields` JSONB column, where each entry is an envelope carrying the value alongside its confidence and provenance:
+
+```json
+{
+  "document_number": { "value": "<ciphertext>", "encrypted": true, "confidence": 0.99, "provenance": "mrz" }
+}
+```
+
+Sensitive values are encrypted individually inside their envelope. Because ciphertext is not queryable in any storage format, nothing is lost by holding these in the payload rather than in dedicated columns. Conversely, any field used for ranking or filtering must be promoted to a typed column, since GIN indexes do not serve range predicates on values extracted from JSONB.
+
+Field schemas are registered per `document_kind` and validated at the application boundary. Adding a document type or an issuing country requires no migration.
 
 ---
 
