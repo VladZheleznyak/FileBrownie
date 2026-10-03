@@ -1,0 +1,33 @@
+# Local documents and sample data that may contain personal information
+documents/
+demo-data/
+data/
+uploads/
+exports/
+
+# Credentials and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Databases, logs, and generated output
+*.db
+*.sqlite
+*.sqlite3
+*.log
+logs/
+tmp/
+temp/
+
+# Python and editor files
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+.idea/
+.vscode/
