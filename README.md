@@ -10,7 +10,8 @@ source evidence and visible gaps:
 It runs entirely in Docker Compose, uses only local inference during medical
 processing, and never modifies source documents. Current inputs are PDF and
 JPG/JPEG; other formats belong to vNext. The repository currently contains a
-runtime and package scaffold, not a working medical-processing pipeline.
+runtime and package scaffold with read-only source discovery, not a working
+medical-processing pipeline.
 
 Keep the MVP simple: terminal histories, source references, visible uncertainty,
 and essential recovery. Optional exports, evidence crops, duplicate heuristics,
@@ -38,7 +39,10 @@ paths. Both must be outside this repository, and the generated-data directory
 must be separate from the source directory (not nested within it). Create those
 directories and a `postgres` subdirectory inside the generated-data directory
 before running Compose. Missing bind directories cause an error rather than
-being silently created. Do not place real records in this checkout.
+being silently created. Set `FILEBROWNIE_UID` and `FILEBROWNIE_GID` to the WSL
+owner's numeric user/group IDs if they differ from the default `1000`. The app
+runs as this user, who needs read access to sources and write access to the
+generated-data directory. Do not place real records in this checkout.
 
 Build and inspect the scaffold:
 
@@ -46,6 +50,7 @@ Build and inspect the scaffold:
 docker compose build app
 docker compose run --rm app filebrownie --version
 docker compose run --rm app filebrownie status
+docker compose run --rm app filebrownie inventory
 docker compose up -d db
 ```
 
@@ -60,8 +65,25 @@ docker compose run --rm app ruff check src tests
 docker compose run --rm app ruff format --check src tests
 ```
 
-`status` reports scaffold implementation status only; it does not connect to the
-database, inspect sources, or claim that an index exists. Scan, activation,
+`status` reports implementation status only; it does not connect to the
+database, inspect sources, or claim that an index exists. `inventory` recursively
+lists sources, recognizes PDF/JPG/JPEG extensions case-insensitively, and computes
+SHA-256 content fingerprints in bounded chunks. It reports unsupported files
+without parsing them or expanding archives. Byte-identical files retain all
+their source paths. A supported extension does not establish valid file content
+or successful extraction. No document reader runs in this command.
+
+Symlinks and special files are skipped with explicit warnings. Unreadable files,
+detected changes during hashing, and directories beyond the depth limit of 64
+are reported as failures. Filenames are escaped in terminal output. Exit codes
+are `0` for a finished inventory (which can include unsupported formats), `1`
+for an inventory with failed/skipped entries, and `2` for setup errors or a busy
+operation. The shared lock is stored in generated-data storage and released by
+the kernel when the process exits, including after interruption. The inventory
+is shown locally and is not persisted or logged. It is not an atomic snapshot;
+scan activation must later revalidate the full inventory and fingerprints.
+
+Scan, activation,
 histories, evidence inspection, review, and erasure are not implemented yet.
 
 `app` and `db` use an internal network with no published ports. Originals and
@@ -82,7 +104,7 @@ and repository. GPU configuration will follow selection of the runtime.
 
 The `src/filebrownie` package separates ingestion, domain-independent evidence,
 medical interpretation, deterministic queries, storage, and CLI presentation.
-Only the scaffold CLI currently has executable behavior. Tests use synthetic
+Source discovery and operation locking are implemented alongside the CLI. Tests use synthetic
 content and run inside the app image. Development tools are included in this
 initial image; no dependencies or virtual environment are installed on the host.
 

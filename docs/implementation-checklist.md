@@ -3,7 +3,9 @@
 This checklist tracks implementation of the [project pivot](../PROJECT_PIVOT_2026-10-03.md),
 [decisions](decisions.md), and [architecture](architecture.md). It adds no product
 scope and does not replace those documents. A package/CLI and Compose scaffold
-exists; OCR, inference, and medical processing are not implemented. The items
+exists, along with read-only recursive source inventory, SHA-256 content identity,
+unsupported-file reporting, and a shared interruption-safe operation lock.
+OCR, inference, and medical processing are not implemented. The items
 below remain unchecked until their full requirements are met. Mark an item complete only with implementation
 and relevant validation evidence; synthetic success does not establish medical
 extraction accuracy. Run application commands and checks through Docker Compose.

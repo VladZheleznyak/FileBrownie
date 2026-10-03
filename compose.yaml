@@ -3,6 +3,7 @@ services:
     build: .
     image: filebrownie-app:local
     command: ["filebrownie", "--help"]
+    user: "${FILEBROWNIE_UID:-1000}:${FILEBROWNIE_GID:-1000}"
     environment:
       FILEBROWNIE_SOURCE_DIR: /sources
       FILEBROWNIE_DATA_DIR: /data
