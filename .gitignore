@@ -1,33 +1,33 @@
-# Local documents and sample data that may contain personal information
-documents/
-demo-data/
-data/
-uploads/
-exports/
-
-# Credentials and local configuration
 .env
 .env.*
 !.env.example
-*.pem
-*.key
-
-# Databases, logs, and generated output
-*.db
-*.sqlite
-*.sqlite3
-*.log
-logs/
-tmp/
-temp/
-
-# Python and editor files
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
 .venv/
 venv/
 .idea/
 .vscode/
+.mypy_cache/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+# Sensitive local artifacts must live outside Git; these are additional guards.
+data/
+documents/
+demo-data/
+uploads/
+exports/
+*.pem
+*.key
+*.db
+*.log
+tmp/
+temp/
+models/
+logs/
+*.pdf
+*.jpg
+*.jpeg
+*.sqlite*

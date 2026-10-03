@@ -3,7 +3,10 @@
 This document describes the intended Phase 1 architecture. It follows
 [the project pivot](../PROJECT_PIVOT_2026-10-03.md) and
 [the decision record](decisions.md), cited below as D-numbers. Nothing here is
-implemented yet.
+implemented as a medical-processing pipeline yet. The repository now has the
+package/CLI and Compose scaffold described in the README; inference and setup
+services are explicit placeholders. This design remains the target, not a claim
+that its controls and features are fully implemented or verified.
 
 The MVP stays simple (D30). Only architectural and essential correctness,
 privacy, and recovery choices require advance decisions. Optional conveniences

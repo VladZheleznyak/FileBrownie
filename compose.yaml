@@ -1,0 +1,109 @@
+services:
+  app:
+    build: .
+    image: filebrownie-app:local
+    command: ["filebrownie", "--help"]
+    environment:
+      FILEBROWNIE_SOURCE_DIR: /sources
+      FILEBROWNIE_DATA_DIR: /data
+      FILEBROWNIE_MODEL_DIR: /models
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      HF_HUB_DISABLE_TELEMETRY: "1"
+    volumes:
+      - type: bind
+        source: ${FILEBROWNIE_SOURCE_DIR:?Set an absolute source folder outside the repository}
+        target: /sources
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${FILEBROWNIE_DATA_DIR:?Set an absolute generated-data folder outside the repository}
+        target: /data
+        bind:
+          create_host_path: false
+      - models:/models:ro
+    networks: [processing]
+    logging:
+      driver: none
+    read_only: true
+    tmpfs: ["/tmp:size=256m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  db:
+    image: postgres:17.6-bookworm
+    environment:
+      POSTGRES_DB: filebrownie
+      POSTGRES_USER: filebrownie
+      # Local-only trust: no published port and an isolated processing network.
+      POSTGRES_HOST_AUTH_METHOD: trust
+    command:
+      - postgres
+      - -c
+      - log_statement=none
+      - -c
+      - log_min_messages=panic
+      - -c
+      - log_min_error_statement=panic
+      - -c
+      - log_parameter_max_length=0
+      - -c
+      - log_parameter_max_length_on_error=0
+      - -c
+      - logging_collector=off
+    volumes:
+      - type: bind
+        source: ${FILEBROWNIE_DATA_DIR:?Set an absolute generated-data folder outside the repository}/postgres
+        target: /var/lib/postgresql/data
+        bind:
+          create_host_path: false
+    networks: [processing]
+    logging:
+      driver: none
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U filebrownie -d filebrownie"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  model:
+    profiles: [inference]
+    build: .
+    image: filebrownie-app:local
+    command: ["filebrownie", "model-service"]
+    environment:
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      HF_HUB_DISABLE_TELEMETRY: "1"
+    volumes: [models:/models:ro]
+    networks: [processing]
+    logging:
+      driver: none
+    read_only: true
+    tmpfs: ["/tmp:size=256m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+  model-setup:
+    profiles: [setup]
+    build: .
+    image: filebrownie-app:local
+    command: ["filebrownie", "model-setup"]
+    # Only setup has external networking; it cannot see originals or derived data.
+    volumes: [models:/models]
+    networks: [setup]
+    logging:
+      driver: none
+    read_only: true
+    tmpfs: ["/tmp:size=256m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+
+networks:
+  processing:
+    internal: true
+  setup: {}
+
+volumes:
+  models: {}
