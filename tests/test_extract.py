@@ -158,6 +158,23 @@ def test_report_date_cannot_become_specimen_timeline():
     assert unsupported.role == "specimen" and not unsupported.role_supported
 
 
+def test_birth_date_cannot_inherit_specimen_timeline_role():
+    spans = (
+        row(20, [(10, "Specimen: serum")])
+        + row(40, [(10, "Date of birth: 01.01.1970")])
+        + row(80, [(10, "Ferritin"), (150, "12"), (230, "ng/mL")])
+    )
+    page = page_of(
+        lab_rows=[lab("Ferritin", "12", unit="ng/mL")],
+        dates=[{"raw": "01.01.1970", "role": "specimen"}],
+    )
+    (fact,) = interpret_page(spans, page).lab_facts
+    assert fact.timeline.role is None
+    assert "DATE_ROLE_UNSUPPORTED" in fact.notes
+    (unsupported,) = [d for d in fact.dates if d.raw == "01.01.1970"]
+    assert unsupported.role == "specimen" and not unsupported.role_supported
+
+
 def test_lab_date_role_uses_caption_row_above_split_date_span():
     spans = (
         row(20, [(10, "Дата забора")])

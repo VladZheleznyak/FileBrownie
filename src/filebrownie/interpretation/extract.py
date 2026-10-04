@@ -59,6 +59,12 @@ _CANCELLATION = re.compile(
     re.IGNORECASE,
 )
 _CLAUSE_SPLIT = re.compile(r"[.;!?\n]+")
+_NON_TIMELINE_DATE_CAPTION = re.compile(
+    r"\b(?:date\s+of\s+birth|dob|born|birthday|"
+    r"дата\s+рожд|рожд(?:ения|енн)|"
+    r"дата\s+народж)\b",
+    re.IGNORECASE,
+)
 
 
 def _date_row(page: PageText, evidence: tuple[int, ...]) -> Row | None:
@@ -83,6 +89,22 @@ def _date_context_text(page: PageText, evidence: tuple[int, ...]) -> str:
         segments.append(header.text)
     segments.append(row.text)
     return " ".join(segments)
+
+
+def _date_role_context_text(page: PageText, evidence: tuple[int, ...]) -> str:
+    """Caption text used for lab date roles; do not inherit roles across incompatible captions."""
+    row = _date_row(page, evidence)
+    if row is None:
+        return ""
+    if _NON_TIMELINE_DATE_CAPTION.search(row.text):
+        return row.text
+    parts = [row.text]
+    above = page.above(row)
+    if above and not looks_like_lab_row(above[0]):
+        header = above[0]
+        if not _NON_TIMELINE_DATE_CAPTION.search(header.text):
+            parts.insert(0, header.text)
+    return " ".join(parts)
 
 
 def _nearest_lab_date_role_before(row_text: str, date_raw: str) -> str | None:
@@ -113,7 +135,7 @@ def _supported_date_role(page: PageText, claim: VisionDate, evidence: tuple[int,
     row = _date_row(page, evidence)
     if row is None:
         return "unsupported"
-    text = _date_context_text(page, evidence)
+    text = _date_role_context_text(page, evidence)
     if claim.role in ("specimen", "report"):
         nearest = _nearest_lab_date_role_before(text, claim.raw)
         if nearest != claim.role:
