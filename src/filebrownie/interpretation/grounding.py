@@ -149,6 +149,29 @@ def _first_result_token(text: str) -> str | None:
     return clean(match.group(0))
 
 
+_REFERENCE_FIELD = re.compile(
+    r"\b(?:reference|ref(?:erence)?|norm(?:al)?|referencia|референс|норма)\b",
+    re.IGNORECASE,
+)
+
+
+def _result_field_text(after: str) -> str:
+    """Portion of a row after the label, stopping before reference annotations."""
+    match = _REFERENCE_FIELD.search(after)
+    if match:
+        after = after[: match.start()]
+    return after.strip(_EDGE)
+
+
+def _first_qualitative_token(after: str) -> str | None:
+    field = _result_field_text(after)
+    if not field:
+        return None
+    segment = field.split("|", 1)[0].strip(_EDGE)
+    token = clean(segment)
+    return token or None
+
+
 def value_at_result_position(row: Row, label_n: str, value_n: str) -> bool:
     """True when `value_n` matches the first result-field token to the right of the label."""
     if not value_n or not label_n:
@@ -158,9 +181,12 @@ def value_at_result_position(row: Row, label_n: str, value_n: str) -> bool:
         return False
     located = _first_result_token(after)
     if located is None:
-        return not any(character.isdigit() for character in value_n) and contains_token(
-            after, value_n
-        )
+        if any(character.isdigit() for character in value_n):
+            return False
+        located = _first_qualitative_token(after)
+        if located is None:
+            return False
+        return located == value_n
     return located == value_n
 
 

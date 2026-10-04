@@ -107,6 +107,21 @@ def test_negative_sign_is_preserved_when_located():
     assert fact.raw_value == "-5"
 
 
+def test_reference_qualitative_value_does_not_verify_as_result():
+    spans = row(80, [(10, "HBsAg"), (150, "Positive"), (320, "Reference: Negative")])
+    page = page_of(lab_rows=[lab("HBsAg", "Negative")])
+    (fact,) = interpret_page(spans, page).lab_facts
+    assert fact.verification == "unverified reading"
+    assert "VALUE_NOT_AT_RESULT" in fact.notes
+
+
+def test_qualitative_result_at_result_position_verifies():
+    spans = row(80, [(10, "HBsAg"), (150, "Positive"), (320, "Reference: Negative")])
+    page = page_of(lab_rows=[lab("HBsAg", "Positive")])
+    (fact,) = interpret_page(spans, page).lab_facts
+    assert fact.verification == "verified"
+
+
 def test_unit_from_another_analyte_row_is_not_inherited():
     spans = row(60, [(10, "Ferritin"), (150, "12"), (230, "ng/mL")]) + row(
         80, [(10, "Hemoglobin"), (150, "135"), (230, "g/L")]
