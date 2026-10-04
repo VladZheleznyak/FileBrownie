@@ -178,7 +178,7 @@ def test_reader_scan_cannot_finish_with_missing_content_outcome(repository, scan
     identifier = repository.begin_inventory(kind="reader")
     repository.save_inventory(identifier, inventory, finalize=False)
     with pytest.raises(DatabaseError, match="^GENERATION_READERS_INCOMPLETE$"):
-        repository.finish_reader_scan(identifier, inventory)
+        repository.finish_scan(identifier, inventory)
     assert repository.generations()[0].state == "running"
 
 
@@ -200,4 +200,4 @@ def test_reader_scan_cli_and_generation_inspection(repository, scan_folders, mon
     output = capsys.readouterr().out
     assert "state: staged" in output
     assert "cached: yes" in output
-    assert "activation are pending" in output
+    assert "no OCR, vision, or medical interpretation" in output

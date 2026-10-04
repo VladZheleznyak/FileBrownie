@@ -1,7 +1,13 @@
 """Fail closed on gateway routes; Compose internal networks enforce runtime isolation."""
 
+import socket
+from collections.abc import Callable
 from ipaddress import IPv4Address
 from pathlib import Path
+
+# Public addresses a payload-free TCP connect is attempted against (D13). Nothing is sent.
+PROBE_TARGETS = (("1.1.1.1", 443), ("9.9.9.9", 443), ("8.8.8.8", 53))
+PROBE_TIMEOUT_SECONDS = 2.0
 
 
 class NetworkIsolationError(Exception):
@@ -28,3 +34,22 @@ def ensure_isolated_network(proc_root: Path = Path("/proc/net")) -> None:
                 raise NetworkIsolationError("RUNTIME_NETWORK_NOT_ISOLATED")
     except (OSError, ValueError, IndexError):
         raise NetworkIsolationError("RUNTIME_NETWORK_ISOLATION_UNKNOWN") from None
+
+
+def ensure_no_outbound(
+    connect: Callable[..., object] = socket.create_connection,
+    targets: tuple[tuple[str, int], ...] = PROBE_TARGETS,
+) -> None:
+    """Refuse to process when the public internet is reachable (D13).
+
+    Complements the route check: an actual connect attempt, with no payload, must fail.
+    """
+    for address in targets:
+        try:
+            connection = connect(address, timeout=PROBE_TIMEOUT_SECONDS)
+        except OSError:
+            continue
+        close = getattr(connection, "close", None)
+        if close is not None:
+            close()
+        raise NetworkIsolationError("OUTBOUND_NETWORK_REACHABLE")

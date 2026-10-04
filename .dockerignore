@@ -7,3 +7,4 @@
 !src/**
 !tests/
 !tests/**
+!compose.yaml

@@ -8,6 +8,7 @@ services:
       FILEBROWNIE_SOURCE_DIR: /sources
       FILEBROWNIE_DATA_DIR: /data
       FILEBROWNIE_MODEL_DIR: /models
+      FILEBROWNIE_MODEL_URL: http://model:8080
       FILEBROWNIE_DATABASE_URL: postgresql://filebrownie@db/filebrownie
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
@@ -70,22 +71,50 @@ services:
       retries: 10
 
   model:
+    # Local inference only (D36, provisional). llama.cpp server pinned by digest; weights come
+    # from model storage provisioned by model-setup and are never downloaded here (D38).
+    # Start with: docker compose --profile inference up -d model
     profiles: [inference]
-    build: .
-    image: filebrownie-app:local
-    command: ["filebrownie", "model-service"]
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda@sha256:ef08b5a98b1170f2b62177be0a4027c88a84043c55afbf190dd18b9e7cdcfebf
+    user: "${FILEBROWNIE_UID:-1000}:${FILEBROWNIE_GID:-1000}"
+    command:
+      - --model
+      - /models/vision/Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf
+      - --mmproj
+      - /models/vision/mmproj-Qwen2.5-VL-7B-Instruct-Q8_0.gguf
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --n-gpu-layers
+      - "99"
+      - --ctx-size
+      - "16384"
+      - --parallel
+      - "1"
+      - --no-webui
+      - --no-slots
+      - --offline
+      - --log-disable
     environment:
+      LLAMA_CACHE: /tmp/llama-cache
       HF_HUB_OFFLINE: "1"
-      TRANSFORMERS_OFFLINE: "1"
-      HF_HUB_DISABLE_TELEMETRY: "1"
     volumes: [models:/models:ro]
     networks: [processing]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     logging:
       driver: none
     read_only: true
     tmpfs: ["/tmp:size=256m,mode=1777"]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
+    restart: "no"
 
   model-setup:
     profiles: [setup]

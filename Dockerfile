@@ -9,12 +9,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /opt/filebrownie
 RUN pip install --no-cache-dir uv==0.8.22
-# Fonts are for reproducible multilingual synthetic PDF fixtures, not OCR models.
+# Fonts are for reproducible multilingual synthetic PDF fixtures. The Tesseract engine is
+# installed here, but its language data is provisioned separately into model storage (D40).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends fonts-dejavu-core \
+    && apt-get install -y --no-install-recommends fonts-dejavu-core tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
 COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
 RUN uv sync --frozen
 COPY tests ./tests
+# Deployment policy tests read the Compose definition; it is never used to run services here.
+COPY compose.yaml ./compose.yaml
 CMD ["filebrownie", "--help"]

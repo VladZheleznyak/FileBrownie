@@ -1,0 +1,49 @@
+{
+  "tesseract": {
+    "description": "Tesseract tessdata_best 4.1.0 language data (eng, rus, ukr, osd)",
+    "files": [
+      {
+        "path": "tessdata/eng.traineddata",
+        "url": "https://github.com/tesseract-ocr/tessdata_best/raw/4.1.0/eng.traineddata",
+        "sha256": "8280aed0782fe27257a68ea10fe7ef324ca0f8d85bd2fd145d1c2b560bcb66ba",
+        "size": 15400601
+      },
+      {
+        "path": "tessdata/rus.traineddata",
+        "url": "https://github.com/tesseract-ocr/tessdata_best/raw/4.1.0/rus.traineddata",
+        "sha256": "b617eb6830ffabaaa795dd87ea7fd251adfe9cf0efe05eb9a2e8128b7728d6b6",
+        "size": 15301764
+      },
+      {
+        "path": "tessdata/ukr.traineddata",
+        "url": "https://github.com/tesseract-ocr/tessdata_best/raw/4.1.0/ukr.traineddata",
+        "sha256": "1277f6e3b6f707063a92d40e7678e7f57154e8414e328e340be9ee9275eea9c8",
+        "size": 10859081
+      },
+      {
+        "path": "tessdata/osd.traineddata",
+        "url": "https://github.com/tesseract-ocr/tessdata_best/raw/4.1.0/osd.traineddata",
+        "sha256": "9cf5d576fcc47564f11265841e5ca839001e7e6f38ff7f7aacf46d15a96b00ff",
+        "size": 10562727
+      }
+    ]
+  },
+  "vision": {
+    "description": "Qwen2.5-VL-7B-Instruct (Apache-2.0) GGUF Q4_K_M with Q8_0 multimodal projector, ggml-org revision 508edd0a",
+    "runtime_check": "size",
+    "files": [
+      {
+        "path": "vision/Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+        "url": "https://huggingface.co/ggml-org/Qwen2.5-VL-7B-Instruct-GGUF/resolve/508edd0afaa66bb9e9f40587acc2184f02daf1f6/Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf",
+        "sha256": "9258bf05b12686d097ff3b6b18d968ab393649780aa2b3cd67fec43d50554392",
+        "size": 4683072032
+      },
+      {
+        "path": "vision/mmproj-Qwen2.5-VL-7B-Instruct-Q8_0.gguf",
+        "url": "https://huggingface.co/ggml-org/Qwen2.5-VL-7B-Instruct-GGUF/resolve/508edd0afaa66bb9e9f40587acc2184f02daf1f6/mmproj-Qwen2.5-VL-7B-Instruct-Q8_0.gguf",
+        "sha256": "2ddb555391bae966e412deab9e07b58afa18bcc06930ba0f1c78a3695ab9e506",
+        "size": 853119712
+      }
+    ]
+  }
+}

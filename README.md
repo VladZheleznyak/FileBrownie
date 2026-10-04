@@ -9,10 +9,13 @@ source evidence and visible gaps:
 
 It runs entirely in Docker Compose, uses only local inference during medical
 processing, and never modifies source documents. Current inputs are PDF and
-JPG/JPEG; other formats belong to vNext. The repository currently contains a
-runtime and package scaffold with read-only source discovery and PostgreSQL
-inventory generations, bounded PDF/JPEG evidence readers, and reader-only scans
-with a verified artifact cache, not a working medical-processing pipeline.
+JPG/JPEG; other formats belong to vNext. The Phase 1 pipeline is implemented
+and passes its synthetic checks: bounded PDF/JPEG readers, Tesseract OCR, a local
+vision model, grounded fact verification, generation activation, dictionary-aware
+`labs` and `visits` histories, manual checks, and erasure. It has **not** been
+evaluated on real documents, and nothing here establishes extraction accuracy or
+completeness; check results against the source documents (D37). See
+[Phase 1 workflow](#phase-1-workflow).
 
 Keep the MVP simple: terminal histories, source references, visible uncertainty,
 and essential recovery. Optional exports, evidence crops, duplicate heuristics,
@@ -118,9 +121,10 @@ generation, and `2` for operational errors. This reusable revalidation
 foundation will be required at every future activation, including forced
 activation; the activation/coverage guard itself is not implemented yet.
 
-Full OCR/vision scanning, activation, histories, dictionary review, and erasure are not
-implemented yet. Saved filenames and fingerprints are sensitive derived data
-stored only in the external PostgreSQL data directory.
+Saved filenames and fingerprints are sensitive derived data stored only in the
+external PostgreSQL data directory. The full scan, activation, histories,
+dictionary review, checks, and erasure are described in the
+[Phase 1 workflow](#phase-1-workflow).
 
 ## First evidence readers
 
@@ -184,8 +188,8 @@ docker compose run --rm app filebrownie scan --readers-only
 docker compose run --rm app filebrownie evidence generation <generation-uuid>
 ```
 
-The `db` service must be running. Plain `scan` returns a setup error until
-the full OCR/vision pipeline is available. `--readers-only` processes each
+The `db` service must be running. Plain `scan` runs the full pipeline (see the
+[Phase 1 workflow](#phase-1-workflow)); `--readers-only` processes each
 unique supported content/format combination once, preserving all identical-byte
 source paths. Unsupported and skipped entries remain visible in the generation.
 Unknown page counts stay unknown; page failures and OCR needs remain visible.
@@ -226,11 +230,103 @@ services, and PostgreSQL statement/parameter logging is disabled. The reader
 routing guard and synthetic parser-diagnostic checks are implemented; full
 processing/service egress and diagnostic-leakage validation remain delivery tasks.
 
-The `inference` profile reserves a local model service; the `setup` profile
-reserves a network-enabled provisioning service with model storage only. Both
-entry points exit with an explicit setup error until the OCR/vision baseline is
-implemented. Neither downloads weights. The model volume is outside the image
-and repository. GPU configuration will follow selection of the runtime.
+The `inference` profile runs the local vision model service (llama.cpp server,
+pinned by image digest, on the internal network, offline, with server logging
+disabled). The `setup` profile is the only service with network access and mounts
+model storage only. See the [Phase 1 workflow](#phase-1-workflow).
+
+## Phase 1 workflow
+
+### Provision models once (network-enabled setup service)
+
+```sh
+docker compose --profile setup run --rm model-setup          # downloads and verifies
+docker compose run --rm app filebrownie model-setup --verify # offline check
+```
+
+Downloads are pinned by URL, size, and SHA-256 in `src/filebrownie/models_manifest.json`
+(Tesseract `tessdata_best` 4.1.0 for English/Russian/Ukrainian; Qwen2.5-VL-7B-Instruct
+Q4_K_M with a Q8_0 multimodal projector, about 5.5 GB). Weights live in the `models` volume,
+outside the image and the repository. Processing never downloads; missing or altered files
+are a setup error with these instructions.
+
+### Start the model service, check readiness, scan
+
+```sh
+docker compose up -d --wait db
+docker compose --profile inference up -d model
+docker compose run --rm app filebrownie migrate
+docker compose run --rm app filebrownie doctor     # isolation, read-only mounts, readiness
+docker compose run --rm app filebrownie scan       # OCR + vision + verify + auto-activate
+```
+
+`doctor` prints fixed labels only. It checks that there is no route to the internet and that
+connecting to public addresses fails, that source and model mounts are read-only, and that the
+database, OCR data, vision weights, and inference service are ready. A full `scan` repeats the
+network checks and refuses to run when the internet is reachable. A first scan with usable
+evidence activates itself; a replacement scan stays staged when the conservative guard finds new
+failures, warnings, or fewer facts, and you decide with `activate <generation> [--force]`.
+Forced activation never overrides interrupted or source-changed generations.
+
+### Ask questions
+
+```sh
+docker compose run --rm app filebrownie labs ferritin --from 2023 --to 2024-06
+docker compose run --rm app filebrownie labs iron-panel
+docker compose run --rm app filebrownie visits ophthalmology
+docker compose run --rm app filebrownie evidence fact <ref-from-table>
+```
+
+Terms may be English, Russian, or Ukrainian. Output separates confirmed rows from candidates
+(terminology, conflicting readings, uncertain dates), keeps differing units apart, counts rows
+excluded for missing dates, lists unmatched text mentions found by the keyword sweep, and lists
+coverage warnings. Every row carries a verification state (`verified` means the label, value and
+any unit were found together in located text, nothing more) and an evidence reference.
+
+### Decisions, checks, and erasure
+
+```sh
+docker compose run --rm app filebrownie dict review
+docker compose run --rm app filebrownie dict accept "label as printed" ferritin
+docker compose run --rm app filebrownie check record --fact <ref> --verdict wrong-value --note "..."
+docker compose run --rm app filebrownie check record --source report.pdf --page 2 --verdict missed
+docker compose run --rm app filebrownie check list
+docker compose run --rm app filebrownie check summary
+docker compose run -it --rm app filebrownie erase derived
+docker compose run -it --rm app filebrownie erase all   # typed confirmation
+```
+
+Checks are bound to document content hash and location, never to a path, and survive pruning and
+`erase derived`; evidence that is gone is labelled unavailable. `erase derived` removes
+generations, caches, rasters, proposals, and logs while keeping dictionary decisions and checks.
+`erase all` also removes them and needs the typed phrase. Sources are never touched.
+
+### Runtime baseline and measurements (synthetic data, RTX 3060 12 GB)
+
+- OCR: Tesseract 5 on CPU, 150 DPI rasters upscaled for recognition, bounding boxes mapped back.
+- Vision: Qwen2.5-VL-7B-Instruct Q4_K_M, llama.cpp server with schema-constrained JSON,
+  temperature 0. About 7 s per synthetic page including OCR and activation; GPU memory about
+  7 GB for the model (8.8 GB in use on the shared GPU), so OCR on the CPU leaves headroom.
+- Queries over 1,500 synthetic facts finish in well under a second (allowance: five minutes).
+- Synthetic English, Russian, and Ukrainian lab pages extracted every row; every row was
+  grounded in OCR text for English and Russian, and one Ukrainian label (an OCR misread) stayed
+  `unverified reading`, as designed.
+- Degraded synthetic pages (blur, low contrast, handwriting-like scribble, stamp): no verified
+  fact contradicted the page. A 3-degree skew left all rows `unverified reading` because row
+  grouping depends on text lines being level.
+
+### Known limitations
+
+- Not evaluated on real documents. D36 and D41 (event/verification heuristics) stay provisional.
+- `verified` shows text presence in one row; prose shaped like a result row can verify. Its
+  evidence points at that prose, so inspect `evidence fact` for important results.
+- Skewed or rotated scans (other than EXIF/90-degree handling) mostly yield unverified readings.
+- Handwriting is flagged, not interpreted. Specimen text the page does not state is discarded.
+- Per-page vision output is a claim; rows missed by the model are only caught by the table
+  discrepancy warning and the keyword sweep.
+- One CLI operation at a time; queries are unavailable during scans.
+- Sanitized local operational log: `<generated-data>/logs/filebrownie.log` (counts, timings,
+  opaque IDs, codes; 256 KiB x 4 files, 30-day age limit; removed by erase). No external telemetry.
 
 ## Development
 

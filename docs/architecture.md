@@ -1,15 +1,12 @@
 # FileBrownie architecture
 
-This document describes the intended Phase 1 architecture. It follows
+This document describes the Phase 1 architecture. It follows
 [the project pivot](../PROJECT_PIVOT_2026-10-03.md) and
-[the decision record](decisions.md), cited below as D-numbers. Nothing here is
-implemented as a medical-processing pipeline yet. The repository now has the
-package/CLI and Compose scaffold plus read-only source discovery and shared
-operation locking, PostgreSQL inventory generations, and source revalidation
-plus bounded PDF/JPEG evidence readers, reader-only generation scans, and a
-versioned reader artifact cache described in the README; inference and setup
-services are explicit placeholders. This design remains the target, not a claim
-that its controls and features are fully implemented or verified.
+[the decision record](decisions.md), cited below as D-numbers. The pipeline is
+implemented and passes synthetic checks; it has not been evaluated on real
+documents. [Implemented baseline](#implemented-baseline) records the choices
+made during implementation. Synthetic success is not a claim of extraction
+accuracy, and D36/D41 remain provisional.
 
 The MVP stays simple (D30). Only architectural and essential correctness,
 privacy, and recovery choices require advance decisions. Optional conveniences
@@ -327,32 +324,64 @@ Terminology acceptance does not change a reading's source-verification state.
 
 ## Illustrative CLI surface
 
-The exact syntax is not a contract. These names only show the intended operations:
+Implemented commands (run through `docker compose run --rm app filebrownie ...`):
 
 ```text
-scan                           full rescan; report source and unit counts
-status                         active and staged generations, coverage summary
-activate --force <generation>  override coverage guard for a valid completed scan
+model-setup [--verify]         provision / verify pinned model files (setup profile)
+doctor                         isolation, read-only mounts, readiness
+migrate | status [--database]
+scan                           full scan, OCR + vision + verify + guarded auto-activation
+scan --readers-only | inventory [--save] | validate <gen> | read <src>
+activate [--force] <generation>
 labs <analyte|group> [--from --to]
 visits <specialty|group> [--from --to]
-evidence show <ref>
-dict review | accept | reject
-check record <ref> correct|wrong-value|missed [--note]
-check record --source <path> --page <n> missed [--note]
+evidence fact <ref> | evidence show <ref> | evidence generation <gen>
+dict review | accept | reject | reverse <label> <concept>
+check record --fact <ref> --verdict V [--note]
+check record --source <path> --page <n> --verdict missed [--note]
+check list | check summary
 erase derived | erase all
 ```
 
+## Implemented baseline
+
+Decisions the earlier sections left open, as built:
+
+- **OCR**: Tesseract 5 (`eng+rus+ukr`, tessdata_best 4.1.0) on the CPU. Rasters are upscaled
+  for recognition, words are merged into cell-like spans, and boxes are mapped back to the
+  stored raster. Language data is provisioned into model storage; the engine is in the image.
+- **Vision**: Qwen2.5-VL-7B-Instruct Q4_K_M with a Q8_0 projector behind a llama.cpp server
+  (digest-pinned image, internal network, offline, `--log-disable`), called through an
+  OpenAI-compatible API with schema-constrained JSON at temperature 0. The client treats the
+  reply as an untrusted claim: output is bounded and validated, then grounded against located
+  text. vLLM is a vNext option.
+- **Provisioning**: `models_manifest.json` pins URL, size and SHA-256 per file. Only the
+  setup service downloads. Processing verifies (checksums for OCR data, size for multi-GB
+  weights) and otherwise reports a setup error.
+- **Cache**: one `step_cache` table keyed by step, content hash, format, unit, raster hash and
+  step version (model, prompt, schema, configuration). Damaged entries are recomputed; failed
+  or invalid output is never cached. Reader artifacts keep their file-based cache.
+- **Text-layer gate**: PDF text with `OCR_REQUIRED` or `TEXT_LAYER_LOW_QUALITY` falls back to
+  OCR; both text sources feed the same grounding step.
+- **Inflection matching**: a small deterministic suffix stemmer (Russian, Ukrainian, English
+  plurals) on NFKC/case/`ё`/apostrophe/homoglyph-normalized tokens. Inflection-only matches are
+  candidates. Dictionary proposals come from unmapped labels containing a seed term.
+- **Activation and erasure**: `active_generation` is a single-row pointer. Erase scopes follow
+  D11; manual checks have no foreign keys into derived tables.
+- **Isolation checks**: route check, an active payload-free connect probe to public addresses,
+  Compose policy tests, and `doctor` for read-only mounts and readiness.
+- **Logging**: `logs.py` writes allow-listed events with allow-listed fields to a size-rotated
+  file under generated data, with an age limit; erase removes it (D39). No logging framework
+  or JSON formatter; those are vNext integrations.
+
 ## Open implementation decisions
 
-- The OCR engine, vision model, and runtime, selected during implementation
-  using small synthetic fixtures and hardware checks (D6, D37).
+- Whether to revisit the OCR engine, vision model, and runtime after real-data
+  review (D6, D37); the baseline is recorded above.
+- Deskewing for tilted scans, which currently produce unverified readings.
 - Full-pipeline parsing/rendering limits; the first PDF/JPEG readers have bounded
   defaults documented in the README.
 - The text-layer quality heuristics (D4).
-- Whether the step cache stores bulky artifacts in the database or as files in
-  generated storage.
-- Whether OCR runs on the GPU or the CPU (D40).
-- The inflection-matching method, such as stemming or seeded word forms (D43).
 
 Ordinary parameters above are implementation choices, not product-interview
 blockers. The architectural interview is resolved for the MVP, with D36 and

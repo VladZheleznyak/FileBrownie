@@ -356,6 +356,13 @@ committing private inputs or results (D6, D37).
 - Add automatic unit normalization and more complex extraction as evidence of
   need emerges. Reprioritize difficult formats based on actual Phase 1 results.
 - Consider further query-speed improvements after measuring the current workflow.
+- Add an optional vLLM serving backend for the vision model (OpenAI-compatible, so
+  the same client contract applies) when higher scan throughput or batching is
+  worth the heavier runtime. Phase 1 uses a llama.cpp server with a quantized
+  model that fits the 12 GB reference GPU. A new backend keeps weights provisioned
+  through the isolated setup service, the pinned image, the internal network, and
+  the sanitized-log boundary, and changes the step-cache version so cached output
+  is never silently reused across runtimes.
 - External model exceptions remain deferred. Any future proposal must preserve
   the no-PII-outside rule and require human confirmation for every external call;
   approval alone does not authorize sending PII.

@@ -1,18 +1,17 @@
-import pytest
-
 from filebrownie.presentation.cli import main
 from filebrownie.storage.operation import operation_lock
 
 
 def test_status_does_not_imply_processing(capsys):
     assert main(["status"]) == 0
-    assert "No OCR, medical extraction, or history pipeline" in capsys.readouterr().out
+    assert "check results against the source documents" in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("command", ["model-service", "model-setup"])
-def test_model_placeholders_fail_explicitly(command, capsys):
-    assert main([command]) == 2
-    assert "SETUP_NOT_IMPLEMENTED" in capsys.readouterr().err
+def test_model_setup_verify_reports_missing_files_without_network(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("FILEBROWNIE_MODEL_DIR", str(tmp_path))
+    assert main(["model-setup", "--verify"]) == 1
+    output = capsys.readouterr().out
+    assert "needs setup" in output and "docker compose --profile setup" in output
 
 
 def configure_inventory(tmp_path, monkeypatch):
@@ -60,6 +59,10 @@ def test_skipped_source_makes_inventory_incomplete(tmp_path, monkeypatch, capsys
     assert "SYMLINK_NOT_FOLLOWED" in capsys.readouterr().out
 
 
-def test_full_scan_is_explicitly_unavailable_without_pipeline(capsys):
+def test_full_scan_without_provisioned_models_reports_setup_instructions(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setenv("FILEBROWNIE_MODEL_DIR", str(tmp_path))
     assert main(["scan"]) == 2
-    assert "SETUP_NOT_IMPLEMENTED" in capsys.readouterr().err
+    error = capsys.readouterr().err
+    assert "MODELS_NOT_PROVISIONED" in error and "model-setup" in error
