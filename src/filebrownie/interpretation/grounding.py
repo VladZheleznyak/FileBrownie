@@ -131,16 +131,37 @@ def looks_like_lab_row(row: Row) -> bool:
     return has_interval or _UNIT_LIKE.search(stripped) is not None
 
 
-def _result_row_text(text: str) -> str:
-    """Row text with reference intervals removed so result values can be distinguished."""
-    return _INTERVAL.sub(" ", text)
+def _text_after_label(row_text: str, label_n: str) -> str | None:
+    if not label_n or not contains_token(row_text, label_n):
+        return None
+    start = row_text.find(label_n)
+    if start < 0:
+        return None
+    return row_text[start + len(label_n) :]
 
 
-def value_at_result_position(row: Row, value_n: str) -> bool:
-    """True when `value_n` is a standalone token in the row, not only inside a reference interval."""
-    if not value_n or not contains_token(row.text, value_n):
+def _first_result_token(text: str) -> str | None:
+    """First standalone value token after the label, ignoring reference intervals."""
+    stripped = _INTERVAL.sub(" ", text)
+    match = _STANDALONE_NUMBER.search(stripped)
+    if not match:
+        return None
+    return clean(match.group(0))
+
+
+def value_at_result_position(row: Row, label_n: str, value_n: str) -> bool:
+    """True when `value_n` matches the first result-field token to the right of the label."""
+    if not value_n or not label_n:
         return False
-    return contains_token(_result_row_text(row.text), value_n)
+    after = _text_after_label(row.text, label_n)
+    if after is None:
+        return False
+    located = _first_result_token(after)
+    if located is None:
+        return not any(character.isdigit() for character in value_n) and contains_token(
+            after, value_n
+        )
+    return located == value_n
 
 
 def _header_rows_above(page: PageText, row: Row) -> list[Row]:
@@ -188,7 +209,7 @@ def ground_lab_row(
     shared = [row for row in label_rows if row in value_rows]
     if shared:
         row = shared[0]
-        if not value_at_result_position(row, value_n):
+        if not value_at_result_position(row, label_n, value_n):
             return LabGrounding(
                 "unverified reading",
                 tuple(sorted(page.refs(row, label_n))),

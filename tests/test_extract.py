@@ -67,6 +67,30 @@ def test_reference_interval_value_does_not_verify_as_result():
     assert "VALUE_NOT_AT_RESULT" in fact.notes
 
 
+def test_reference_threshold_does_not_verify_as_result():
+    spans = row(80, [(10, "Ferritin"), (150, "12"), (230, "ng/mL"), (320, ">15")])
+    page = page_of(lab_rows=[lab("Ferritin", "15", unit="ng/mL")])
+    (fact,) = interpret_page(spans, page).lab_facts
+    assert fact.verification == "unverified reading"
+    assert "VALUE_NOT_AT_RESULT" in fact.notes
+
+
+def test_comparator_must_match_located_result():
+    spans = row(80, [(10, "Ferritin"), (150, "<5"), (230, "ng/mL")])
+    page = page_of(lab_rows=[lab("Ferritin", "5", unit="ng/mL")])
+    (fact,) = interpret_page(spans, page).lab_facts
+    assert fact.verification == "unverified reading"
+    assert "VALUE_NOT_AT_RESULT" in fact.notes
+
+
+def test_comparator_is_preserved_when_located():
+    spans = row(80, [(10, "Ferritin"), (150, "<5"), (230, "ng/mL")])
+    page = page_of(lab_rows=[lab("Ferritin", "<5", unit="ng/mL")])
+    (fact,) = interpret_page(spans, page).lab_facts
+    assert fact.verification == "verified"
+    assert fact.comparator == "<" and fact.value_number == "5"
+
+
 def test_unit_from_another_analyte_row_is_not_inherited():
     spans = row(60, [(10, "Ferritin"), (150, "12"), (230, "ng/mL")]) + row(
         80, [(10, "Hemoglobin"), (150, "135"), (230, "g/L")]
