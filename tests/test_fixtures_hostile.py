@@ -111,7 +111,8 @@ def test_row_shaped_injection_prose_is_verified_only_with_its_own_text_as_eviden
         "SELECT text FROM text_spans WHERE span_index = ANY(%s) AND text LIKE 'Ignore%%'",
         (evidence,),
     ).fetchall()
-    assert verification["999"] == "verified" and spans  # the user can see where it came from
+    assert verification["999"] == "unverified reading"
+    assert spans  # located prose still links the rejected claim to its source row
 
 
 def test_same_value_in_different_rows_and_units_are_not_merged(repository, folders):

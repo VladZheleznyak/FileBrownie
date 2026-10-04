@@ -127,6 +127,20 @@ def test_report_date_cannot_become_specimen_timeline():
     assert unsupported.role == "specimen" and not unsupported.role_supported
 
 
+def test_lab_date_role_uses_caption_row_above_split_date_span():
+    spans = (
+        row(20, [(10, "Дата забора")])
+        + row(40, [(10, "15.06.2023")])
+        + row(80, [(10, "Ferritin"), (150, "12"), (230, "ng/mL")])
+    )
+    page = page_of(
+        lab_rows=[lab("Ferritin", "12", unit="ng/mL")],
+        dates=[{"raw": "15.06.2023", "role": "specimen"}],
+    )
+    (fact,) = interpret_page(spans, page).lab_facts
+    assert fact.timeline.role == "specimen"
+
+
 def test_lab_date_role_uses_nearest_cue_to_the_left():
     spans = row(
         20,

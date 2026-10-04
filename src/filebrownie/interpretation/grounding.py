@@ -172,8 +172,9 @@ def _header_rows_above(page: PageText, row: Row) -> list[Row]:
 def _inherit_field(page: PageText, row: Row, needle: str) -> tuple[Row, str] | None:
     if contains_token(row.text, needle):
         return (row, needle)
+    headers = _header_rows_above(page, row)
     return next(
-        ((header, needle) for header in _header_rows_above(page, row) if contains_token(header.text, needle)),
+        ((header, needle) for header in headers if contains_token(header.text, needle)),
         None,
     )
 

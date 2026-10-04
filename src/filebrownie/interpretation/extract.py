@@ -5,14 +5,14 @@ from collections.abc import Sequence
 from decimal import Decimal, InvalidOperation
 
 from filebrownie.evidence.models import TextSpan
-from filebrownie.evidence.normalize import normalize
+from filebrownie.evidence.normalize import contains_token, normalize
 from filebrownie.interpretation.dates import DateValue, parse_date
-from filebrownie.evidence.normalize import contains_token
 from filebrownie.interpretation.grounding import (
     PageText,
     Row,
     clean,
     ground_lab_row,
+    looks_like_lab_row,
     uncovered_lab_rows,
 )
 from filebrownie.interpretation.models import (
@@ -71,8 +71,22 @@ def _date_row(page: PageText, evidence: tuple[int, ...]) -> Row | None:
     return None
 
 
+def _date_context_text(page: PageText, evidence: tuple[int, ...]) -> str:
+    """Caption rows above the located date plus the date row (not laboratory data rows)."""
+    row = _date_row(page, evidence)
+    if row is None:
+        return ""
+    segments: list[str] = []
+    for header in reversed(page.above(row)):
+        if looks_like_lab_row(header):
+            break
+        segments.append(header.text)
+    segments.append(row.text)
+    return " ".join(segments)
+
+
 def _nearest_lab_date_role_before(row_text: str, date_raw: str) -> str | None:
-    """Role cue closest to the left of the located date in the same row, if any."""
+    """Role cue closest to the left of the located date in the caption context, if any."""
     date_n = clean(date_raw)
     if not date_n:
         return None
@@ -99,7 +113,7 @@ def _supported_date_role(page: PageText, claim: VisionDate, evidence: tuple[int,
     row = _date_row(page, evidence)
     if row is None:
         return "unsupported"
-    text = row.text
+    text = _date_context_text(page, evidence)
     if claim.role in ("specimen", "report"):
         nearest = _nearest_lab_date_role_before(text, claim.raw)
         if nearest != claim.role:
@@ -180,10 +194,7 @@ def build_timeline(dates: Sequence[ReportedDate], preference: Sequence[str]) -> 
         chosen = [
             item
             for item in dates
-            if item.grounded
-            and item.role_supported
-            and item.role == role
-            and item.alternatives
+            if item.grounded and item.role_supported and item.role == role and item.alternatives
         ]
         if not chosen:
             continue
@@ -314,11 +325,7 @@ def _cue_supported(text: str, cue: str) -> bool:
 
 def wording_types(wording: str) -> set[str]:
     text = normalize(wording)
-    found = {
-        name
-        for name, cues in _CUES.items()
-        if any(_cue_supported(text, cue) for cue in cues)
-    }
+    found = {name for name, cues in _CUES.items() if any(_cue_supported(text, cue) for cue in cues)}
     if "recommendation" in found:
         return {"other"}
     if found & {"referral", "appointment_scheduled", "appointment_confirmed"}:
@@ -415,10 +422,7 @@ def _event_fact(page: PageText, vision: VisionPage, event: VisionEvent) -> Event
     own = [
         item
         for item in dates
-        if item.grounded
-        and item.role_supported
-        and item.role == "event"
-        and item.alternatives
+        if item.grounded and item.role_supported and item.role == "event" and item.alternatives
     ]
     timeline = build_timeline(own, EVENT_DATE_PREFERENCE)
     if timeline.role is not None and not timeline.alternatives:

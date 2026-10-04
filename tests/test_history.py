@@ -161,12 +161,13 @@ def test_hemoglobin_history_across_languages_with_sections(collection):
     for term in ("hemoglobin", "ГЕМОГЛОБИН", "гемоглобін", "hgb"):
         result = run_query(repository, "labs", term, parse_range(None, None))
         assert rows_of(result) == ["128", "13.5", "14.2"]
-        assert [row.fields["value"] for row in result.undated] == ["11.0"]
-        assert {c.row.fields["value"] for c in result.candidates} == {"12.9", "15.5"}
+        assert sorted(row.fields["value"] for row in result.undated) == ["11.0", "12.9"]
+        assert {c.row.fields["value"] for c in result.candidates} == {"15.5"}
     result = run_query(repository, "labs", "hemoglobin", parse_range(None, None))
     candidates = {c.row.fields["value"]: c.reasons for c in result.candidates}
-    assert any("date uncertain" in reason for reason in candidates["12.9"])
     assert any("unresolved reading" in reason for reason in candidates["15.5"])
+    undated_129 = next(row for row in result.undated if row.fields["value"] == "12.9")
+    assert "DATE_ROLE_UNSUPPORTED" in undated_129.notes
     ordered = [row.date_text for row in result.rows]
     assert ordered == sorted(ordered, key=lambda text: text.split(" ")[0])
     assert any(
@@ -179,14 +180,14 @@ def test_date_filter_excludes_undated_but_counts_them(collection):
     repository, *_ = collection
     result = run_query(repository, "labs", "hemoglobin", parse_range("2024-01-01", "2024-12-31"))
     assert rows_of(result) == ["13.5", "14.2"]
-    assert result.undated == [] and result.excluded_undated == 1
+    assert result.undated == [] and result.excluded_undated == 2
     # 05.2024 lies fully inside the window; narrowing to mid-May makes it a "may fall" row.
     narrow = run_query(repository, "labs", "hemoglobin", parse_range("2024-05-15", "2024-05-31"))
     assert [row.fields["value"] for row in narrow.rows] == ["14.2"]
     assert "may fall within range" in narrow.rows[0].markers
     april = run_query(repository, "labs", "hemoglobin", parse_range("2024-04-01", "2024-04-30"))
-    assert [c.row.fields["value"] for c in april.candidates][:1] == ["12.9"]
-    assert "date uncertain" in april.candidates[0].reasons[0]
+    assert rows_of(april) == []
+    assert april.excluded_undated == 2
 
 
 def test_unmatched_mention_is_reported_even_next_to_facts(collection):
@@ -226,8 +227,8 @@ def test_cli_labs_output_and_evidence_fact(collection, monkeypatch, capsys):
     assert cli.main(["labs", "hemoglobin", "--from", "2024", "--to", "2024"]) == 0
     output = capsys.readouterr().out
     assert "Laboratory history" in output and "Scan completed:" in output
-    assert "dictionary revision" in output and "Candidates, not confirmed results" in output
-    assert "no usable date: 1" in output
+    assert "dictionary revision" in output.lower()
+    assert "no usable date: 2" in output
     assert "Possible unmatched mentions" in output
     assert "does not prove" in output
     line = next(item for item in output.splitlines() if "13.5" in item and "a.pdf" in item)
@@ -328,5 +329,7 @@ def test_mention_sweep_matches_phrase_across_adjacent_spans(repository, folders)
         [(20, 40, "erythrocyte"), (120, 40, "sedimentation"), (240, 40, "rate")],
     )
     run_full_scan(repository, source, data, None, FakeVision({"lab_rows": []}))
-    result = run_query(repository, "labs", "erythrocyte sedimentation rate", parse_range(None, None))
+    result = run_query(
+        repository, "labs", "erythrocyte sedimentation rate", parse_range(None, None)
+    )
     assert any("erythrocyte" in mention.text.lower() for mention in result.mentions)

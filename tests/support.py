@@ -4,6 +4,8 @@ import pymupdf
 
 from filebrownie.evidence.models import TextSpan
 
+_PDF_FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+
 
 class FakeVision:
     """Deterministic stand-in for the local vision model."""
@@ -28,8 +30,9 @@ def pdf_lines(path, lines, width=500, height=400):
     """Write a one-page PDF; each item is (x, y, text)."""
     with pymupdf.open() as document:
         page = document.new_page(width=width, height=height)
+        page.insert_font(fontname="synthetic", fontfile=_PDF_FONT)
         for x, y, text in lines:
-            page.insert_text((x, y), text, fontsize=11, fontname="helv")
+            page.insert_text((x, y), text, fontname="synthetic", fontsize=11)
         document.save(path)
 
 
