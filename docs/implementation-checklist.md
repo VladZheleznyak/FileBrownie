@@ -12,7 +12,11 @@ guard, full evidence processing, caches, and durable user decisions remain pendi
 The first evidence readers now render PDF/JPEG units, preserve located PDF text
 and page failures, flag OCR needs, and write local inspectable artifacts through
 a resource-limited worker with discarded diagnostics and a routing guard.
-OCR/vision processing, generation-linked evidence, and step caching remain pending.
+Reader-only scans now link outcomes/artifacts to generations, revalidate sources
+at completion, and cache normal completed/partial reader outputs by exact bytes,
+implementation/configuration versions, and artifact checksums. Failed/interrupted
+output is retried. Full OCR/vision processing, activation, other step caches,
+pruning, and erasure remain pending.
 OCR, inference, and medical processing are not implemented. The items
 below remain unchecked until their full requirements are met. Mark an item complete only with implementation
 and relevant validation evidence; synthetic success does not establish medical

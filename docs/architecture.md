@@ -6,7 +6,8 @@ This document describes the intended Phase 1 architecture. It follows
 implemented as a medical-processing pipeline yet. The repository now has the
 package/CLI and Compose scaffold plus read-only source discovery and shared
 operation locking, PostgreSQL inventory generations, and source revalidation
-plus bounded PDF/JPEG evidence readers described in the README; inference and setup
+plus bounded PDF/JPEG evidence readers, reader-only generation scans, and a
+versioned reader artifact cache described in the README; inference and setup
 services are explicit placeholders. This design remains the target, not a claim
 that its controls and features are fully implemented or verified.
 

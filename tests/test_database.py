@@ -1,34 +1,14 @@
-import os
 from contextlib import contextmanager
 from dataclasses import replace
-from uuid import uuid4
 
-import psycopg
 import pytest
-from psycopg import sql
 from psycopg.errors import CheckViolation
-from psycopg.rows import dict_row
 
 from filebrownie.ingestion.discovery import discover_sources
 from filebrownie.presentation import cli
-from filebrownie.storage.database import DatabaseError, Repository
+from filebrownie.storage.database import DatabaseError, migration_scripts
 
 pytestmark = pytest.mark.integration
-
-
-@pytest.fixture
-def repository():
-    url = os.environ.get("FILEBROWNIE_TEST_DATABASE_URL")
-    if url is None:
-        pytest.skip("Use compose.test.yaml for the disposable database.")
-    schema = "test_" + uuid4().hex
-    with psycopg.connect(url, autocommit=True, row_factory=dict_row, connect_timeout=5) as conn:
-        conn.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
-        conn.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(schema)))
-        try:
-            yield Repository(conn)
-        finally:
-            conn.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
 
 
 def test_migrations_are_idempotent_and_detect_modified_history(repository):
@@ -157,3 +137,29 @@ def test_cli_interruption_leaves_recoverable_generation(repository, tmp_path, mo
     assert cli.main(["inventory", "--save"]) == 130
     assert capsys.readouterr().err == "OPERATION_INTERRUPTED\n"
     assert repository.generations()[0].state == "interrupted"
+
+
+def test_upgrade_from_first_schema_preserves_inventory(repository, tmp_path):
+    from uuid import uuid4
+
+    number, script, checksum = migration_scripts()[0]
+    repository.connection.execute(
+        "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, checksum TEXT NOT NULL)"
+    )
+    repository.connection.execute(script)
+    repository.connection.execute(
+        "INSERT INTO schema_migrations VALUES (%s, %s)", (number, checksum)
+    )
+    identifier = uuid4()
+    repository.connection.execute(
+        "INSERT INTO generations (id, state, inventory_at, reason) "
+        "VALUES (%s, 'staged', now(), 'INVENTORY_ONLY')",
+        (identifier,),
+    )
+    repository.migrate()
+    repository.require_schema()
+    (generation,) = repository.generations()
+    assert generation.id == identifier
+    assert generation.kind == "inventory"
+    assert generation.state == "staged"
+    assert repository.load_inventory(identifier).records == ()

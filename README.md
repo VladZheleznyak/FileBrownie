@@ -11,8 +11,8 @@ It runs entirely in Docker Compose, uses only local inference during medical
 processing, and never modifies source documents. Current inputs are PDF and
 JPG/JPEG; other formats belong to vNext. The repository currently contains a
 runtime and package scaffold with read-only source discovery and PostgreSQL
-inventory generations and bounded PDF/JPEG evidence readers, not a working
-medical-processing pipeline.
+inventory generations, bounded PDF/JPEG evidence readers, and reader-only scans
+with a verified artifact cache, not a working medical-processing pipeline.
 
 Keep the MVP simple: terminal histories, source references, visible uncertainty,
 and essential recovery. Optional exports, evidence crops, duplicate heuristics,
@@ -118,7 +118,7 @@ generation, and `2` for operational errors. This reusable revalidation
 foundation will be required at every future activation, including forced
 activation; the activation/coverage guard itself is not implemented yet.
 
-Scan, activation, histories, dictionary review, and erasure are not
+Full OCR/vision scanning, activation, histories, dictionary review, and erasure are not
 implemented yet. Saved filenames and fingerprints are sensitive derived data
 stored only in the external PostgreSQL data directory.
 
@@ -154,8 +154,9 @@ symlinks. Parser diagnostics and raw exceptions are not retained. The copy is
 removed afterward; evidence, rasters, and manifests stay under the external
 generated-data directory in `evidence/<opaque-uuid>/`. Artifacts record content
 hashes, source references, reader dependency versions, page/image counts, one
-processing status, and concurrent warnings. Reader results are not yet linked
-to PostgreSQL generations or a step cache.
+processing status, and concurrent warnings. Standalone `read` results are not
+automatically registered with a generation; the reader-only scan below connects
+reader artifacts to generations and a cache.
 
 Initial limits are 64 MiB input, 200 PDF pages, 8 million pixels per page/image,
 100 million retained document pixels, 256 MiB raster output, 16 MiB manifests,
@@ -171,6 +172,50 @@ not complete medical extraction. `read` and `evidence show` return `0` for
 completed reader output, `1` for partial/failed/unsupported output, and `2`
 for operational errors. Inspection is intentional local product output and may
 show sensitive source text; Docker capture remains disabled.
+
+## Reader-only scans and cache
+
+Initialize or upgrade the database, then run the bounded reader stage over the
+configured folder:
+
+```sh
+docker compose run --rm app filebrownie migrate
+docker compose run --rm app filebrownie scan --readers-only
+docker compose run --rm app filebrownie evidence generation <generation-uuid>
+```
+
+The `db` service must be running. Plain `scan` returns a setup error until
+the full OCR/vision pipeline is available. `--readers-only` processes each
+unique supported content/format combination once, preserving all identical-byte
+source paths. Unsupported and skipped entries remain visible in the generation.
+Unknown page counts stay unknown; page failures and OCR needs remain visible.
+Reader outcomes and evidence references are saved per generation in PostgreSQL;
+text and rasters remain in generated-data storage.
+
+Each generation records its inventory before reading and revalidates it after
+the readers finish. Additions, removals, changes, or unverifiable entries make it
+`invalid`. A consistent reader scan stays `staged` with reason
+`READERS_ONLY`; no active medical index or facts are published. Interruption
+retains previously saved outcomes and caches. A fresh scan marks unfinished
+generations interrupted and reuses valid work without continuing a damaged
+generation. Completion requires an outcome for every eligible unique content.
+
+The cache key includes exact input bytes, source format, reader implementation
+and schema code, dependency/Python versions, machine architecture, and reader
+limits. Before reuse, the JSON and every referenced raster must match saved
+SHA-256 checksums. Missing, changed, or unsafe artifacts are cache misses and
+trigger a fresh read. Ordinary partial output needing OCR or text-quality review
+can be reused with its warnings; failed, interrupted, timed-out, or resource-limited
+reader output is retried. Previously cached artifacts remain independent of
+generation rows. Pruning and erasure are still pending.
+
+Cached evidence records the source path at artifact creation. Use
+`evidence generation` for that generation's current source aliases, and
+`evidence show` for located text by artifact reference. Reader-only scans exit
+`0` when all discovered entries are supported and reader outcomes completed,
+`1` for partial/failed/unsupported/skipped coverage or an invalid generation,
+`2` for operational errors, and `130` for keyboard interruption. These
+statuses do not establish medical extraction completeness.
 
 `app` and `db` use an internal network with no published ports. Originals and
 model storage are mounted read-only into the app; generated data and PostgreSQL

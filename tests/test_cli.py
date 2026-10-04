@@ -6,7 +6,7 @@ from filebrownie.storage.operation import operation_lock
 
 def test_status_does_not_imply_processing(capsys):
     assert main(["status"]) == 0
-    assert "No scan, OCR, medical extraction, or history pipeline" in capsys.readouterr().out
+    assert "No OCR, medical extraction, or history pipeline" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("command", ["model-service", "model-setup"])
@@ -58,3 +58,8 @@ def test_skipped_source_makes_inventory_incomplete(tmp_path, monkeypatch, capsys
     (source / "broken.pdf").symlink_to(tmp_path / "absent")
     assert main(["inventory"]) == 1
     assert "SYMLINK_NOT_FOLLOWED" in capsys.readouterr().out
+
+
+def test_full_scan_is_explicitly_unavailable_without_pipeline(capsys):
+    assert main(["scan"]) == 2
+    assert "SETUP_NOT_IMPLEMENTED" in capsys.readouterr().err
