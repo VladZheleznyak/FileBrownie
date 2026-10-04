@@ -81,9 +81,7 @@ def test_group_id_with_hyphen_resolves_members(seed):
     d = dictionary(seed)
     scope = d.resolve("iron-panel", "analyte")
     assert scope.group == "iron panel"
-    assert scope.concepts == frozenset(
-        {"ferritin", "serum-iron", "tibc", "transferrin-saturation"}
-    )
+    assert scope.concepts == frozenset({"ferritin", "serum-iron", "tibc", "transferrin-saturation"})
 
 
 def test_rejected_concept_pair_does_not_confirm_as_raw(seed):

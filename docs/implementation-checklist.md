@@ -79,7 +79,8 @@ exist. Run application commands and checks through Docker Compose.
   readings. Keep missing fields/context explicit, flag uninterpreted handwriting,
   and warn about detected table-row extraction discrepancies (D4, D5, D28, D37).
   Evidence: `tests/test_pipeline.py`, `tests/test_extract.py` (reference-interval/value
-  position, cross-row unit inheritance, date roles, letterhead/negation), `tests/test_ocr.py`,
+  position, comparator/threshold grounding, cross-row unit inheritance, date roles including
+  unsupported timeline exclusion, letterhead/negation/cancellation), `tests/test_ocr.py`,
   `tests/test_model_service.py`.
 - [x] Extract raw laboratory values, comparators, qualitative values, units,
   intervals, flags, specimen, and role-aware dates. Extract explicitly supported

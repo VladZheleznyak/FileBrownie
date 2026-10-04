@@ -6,8 +6,8 @@ from uuid import UUID
 
 from filebrownie.evidence.models import TextSpan
 from filebrownie.evidence.normalize import contains_phrase, stems
-from filebrownie.interpretation.grounding import PageText
 from filebrownie.interpretation.dates import DateValue
+from filebrownie.interpretation.grounding import PageText
 from filebrownie.query.dictionary import Dictionary, Scope, stem_key
 from filebrownie.query.timeline import (
     MAY_FALL,
@@ -160,9 +160,7 @@ def sweep(
             for row in page.rows:
                 if not contains_phrase(stems(row.text), phrase):
                     continue
-                keys = tuple(
-                    (content_hash, fmt, unit_number, index) for index in row.indices
-                )
+                keys = tuple((content_hash, fmt, unit_number, index) for index in row.indices)
                 if all(key in covered for key in keys):
                     continue
                 text = " ".join(page.spans[index].text.strip() for index in row.indices)[:100]

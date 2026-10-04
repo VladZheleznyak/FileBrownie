@@ -47,6 +47,9 @@ being silently created. Set `FILEBROWNIE_UID` and `FILEBROWNIE_GID` to the WSL
 owner's numeric user/group IDs if they differ from the default `1000`. The app
 runs as this user, who needs read access to sources and write access to the
 generated-data directory. Do not place real records in this checkout.
+`doctor` rejects overlapping container paths and, when `FILEBROWNIE_HOST_SOURCE_DIR`
+and `FILEBROWNIE_HOST_DATA_DIR` are set, overlapping host paths. It cannot resolve
+host-only symlink aliases or verify that generated data is outside Git.
 
 Build and inspect the scaffold:
 

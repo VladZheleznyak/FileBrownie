@@ -775,9 +775,7 @@ def evidence_command(source_name: str | None = None, reference: UUID | None = No
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="filebrownie",
-        description=(
-            "Local medical histories. Source inventory is available; extraction is pending."
-        ),
+        description="Local medical histories from PDF and JPEG sources.",
     )
     parser.add_argument("--version", action="version", version=f"FileBrownie {__version__}")
     commands = parser.add_subparsers(dest="command")
@@ -790,7 +788,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     commands.add_parser("migrate", help="Initialize or upgrade the local database schema.")
     validate = commands.add_parser("validate", help="Recheck a saved inventory against sources.")
     validate.add_argument("generation", type=UUID)
-    scan = commands.add_parser("scan", help="Scan one folder (reader foundations only for now).")
+    scan = commands.add_parser(
+        "scan",
+        help="Scan one folder through readers, OCR, vision, and activation.",
+    )
     scan.add_argument(
         "--readers-only",
         action="store_true",

@@ -5,6 +5,12 @@ services:
     depends_on:
       db-test:
         condition: service_healthy
+    volumes: !reset
+      - models:/models:ro
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+      - /sources:size=64m,mode=1777
+      - /data:size=256m,mode=1777
 
   db-test:
     profiles: [test]

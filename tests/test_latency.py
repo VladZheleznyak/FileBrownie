@@ -23,11 +23,9 @@ def test_group_and_analyte_queries_finish_far_inside_the_allowance(repository, t
     repository.migrate()
     outputs = []
     for number in range(DOCUMENTS):
-        lines, rows = (
-            [(20, 30, f"Specimen collected: {1 + number % 28:02d}.0{1 + number % 9}.2023")],
-            [],
-        )
-        specimen = f"Specimen collected: {1 + number % 28:02d}.06.2023"
+        specimen_date = f"{1 + number % 28:02d}.06.2023"
+        specimen = f"Specimen collected: {specimen_date}"
+        lines, rows = ([(20, 30, specimen)], [])
         for row in range(ROWS_PER_DOCUMENT):
             label = f"{ANALYTES[row % len(ANALYTES)]} {row // len(ANALYTES) or ''}".strip()
             value = f"{number}.{row}"
@@ -36,7 +34,7 @@ def test_group_and_analyte_queries_finish_far_inside_the_allowance(repository, t
                 {
                     "label": label,
                     "value": value,
-                    "dates": [{"raw": specimen.split(": ", 1)[1], "role": "specimen"}],
+                    "dates": [{"raw": specimen_date, "role": "specimen"}],
                 }
             )
         pdf_lines(source / f"doc-{number:03}.pdf", lines, height=400 + 12 * ROWS_PER_DOCUMENT)
@@ -50,7 +48,9 @@ def test_group_and_analyte_queries_finish_far_inside_the_allowance(repository, t
     group = run_query(
         repository, "labs", "iron-panel", parse_range("2023-01", "2023-12"), dictionary=None
     )
-    assert group.rows or group.undated or group.candidates
+    ferritin_rows = [row for row in group.rows if row.fields["label"].startswith("Ferritin")]
+    assert len(ferritin_rows) == DOCUMENTS
+    assert not group.undated
     for name, term, window in (
         ("analyte", "hemoglobin", parse_range(None, None)),
         ("group", "iron-panel", parse_range("2023-01", "2023-12")),

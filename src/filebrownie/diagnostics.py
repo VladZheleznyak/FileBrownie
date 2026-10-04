@@ -9,14 +9,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from filebrownie.ingestion.discovery import InventoryError
-
 from filebrownie import provisioning
 from filebrownie.evidence.network import (
     NetworkIsolationError,
     ensure_isolated_network,
     ensure_no_outbound,
 )
+from filebrownie.ingestion.discovery import InventoryError
 from filebrownie.interpretation.llama_vision import LlamaVisionClient
 
 
