@@ -116,7 +116,7 @@ class LabGrounding:
 
 _UNIT_LIKE = re.compile(r"(?:[a-zа-яіїєґµμ%]+[a-zа-яіїєґ0-9^*]*/[a-zа-яіїєґ0-9^*.]+)|%")
 _INTERVAL = re.compile(r"\d+(?:\.\d+)?\s*[-–—]\s*\d+(?:\.\d+)?")
-_STANDALONE_NUMBER = re.compile(r"(?<![\w.])[<>≤≥]?\d+(?:\.\d+)?(?![\w.])")
+_STANDALONE_NUMBER = re.compile(r"(?<![\w.])(?:[<>≤≥]?-?\d+(?:\.\d+)?)(?![\w.])")
 
 
 def looks_like_lab_row(row: Row) -> bool:
