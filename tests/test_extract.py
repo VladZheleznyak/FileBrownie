@@ -175,6 +175,51 @@ def test_negated_consultation_is_not_a_verified_encounter():
     assert interpret_page(spans, page).events == ()
 
 
+def test_cancelled_consultation_is_not_a_verified_encounter():
+    spans = row(20, [(10, "Consultation with urology was cancelled")])
+    page = page_of(
+        document_class="visit_note",
+        events=[
+            {
+                "specialty": "urology",
+                "event_type": "encounter",
+                "wording": "Consultation with urology was cancelled",
+            }
+        ],
+    )
+    assert interpret_page(spans, page).events == ()
+
+
+def test_long_negated_consultation_is_not_a_verified_encounter():
+    spans = row(20, [(10, "No prior or subsequent urology consultation occurred")])
+    page = page_of(
+        document_class="visit_note",
+        events=[
+            {
+                "specialty": "urology",
+                "event_type": "encounter",
+                "wording": "No prior or subsequent urology consultation occurred",
+            }
+        ],
+    )
+    assert interpret_page(spans, page).events == ()
+
+
+def test_model_wording_fragment_cannot_bypass_source_negation():
+    spans = row(20, [(10, "No urology consultation occurred")])
+    page = page_of(
+        document_class="visit_note",
+        events=[
+            {
+                "specialty": "urology",
+                "event_type": "encounter",
+                "wording": "urology consultation occurred",
+            }
+        ],
+    )
+    assert interpret_page(spans, page).events == ()
+
+
 def test_unit_not_in_row_or_header_keeps_reading_unverified():
     page = page_of(lab_rows=[lab("Hemoglobin", "13.5", unit="mmol/L")])
     (fact,) = interpret_page(table(), page).lab_facts

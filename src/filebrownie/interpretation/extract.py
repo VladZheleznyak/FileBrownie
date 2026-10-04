@@ -50,9 +50,15 @@ def parse_value(raw: str) -> tuple[str | None, str | None, bool]:
 _SPECIMEN_CUES = ("specimen", "collected", "collection", "забор", "взят", "взяті", "зразок")
 _REPORT_CUES = ("report", "issued", "видано", "видан", "результат")
 _NEGATION = re.compile(
-    r"(?:^|\s)(?:no|not|never|denied|without|не|нет|ні|відсут)(?:\s|$)",
+    r"(?:^|\s)(?:no|not|never|denied|without|neither|nor|не|нет|ні|ни|без|відсут)(?:\s|$)",
     re.IGNORECASE,
 )
+_CANCELLATION = re.compile(
+    r"(?:cancel|postpon|reschedul|no[\s-]?show|did\s+not\s+attend|"
+    r"отмен|скасов|перенес|не\s+состоял|не\s+відбул|не\s+явил|не\s+з'явив)",
+    re.IGNORECASE,
+)
+_CLAUSE_SPLIT = re.compile(r"[.;!?\n]+")
 
 
 def _date_row(page: PageText, evidence: tuple[int, ...]) -> Row | None:
@@ -285,12 +291,25 @@ _CUES: dict[str, tuple[str, ...]] = {
 }
 
 
+def _clause_with_cue(text: str, cue: str) -> str | None:
+    text = normalize(text)
+    if cue not in text:
+        return None
+    for clause in _CLAUSE_SPLIT.split(text):
+        if cue in clause:
+            return clause.strip()
+    return text
+
+
+def _clause_blocks_event(clause: str) -> bool:
+    return _NEGATION.search(clause) is not None or _CANCELLATION.search(clause) is not None
+
+
 def _cue_supported(text: str, cue: str) -> bool:
-    index = text.find(cue)
-    if index < 0:
+    clause = _clause_with_cue(text, cue)
+    if clause is None:
         return False
-    prefix = text[:index]
-    return _NEGATION.search(prefix[-20:]) is None
+    return not _clause_blocks_event(clause)
 
 
 def wording_types(wording: str) -> set[str]:
@@ -336,7 +355,7 @@ def evidence_strength(
     )
 
 
-def _event_fact(page: PageText, vision: VisionPage, event: VisionEvent) -> EventFact:
+def _event_fact(page: PageText, vision: VisionPage, event: VisionEvent) -> EventFact | None:
     specialty_n, wording_n = clean(event.specialty), clean(event.wording)
     specialty_rows, wording_rows = page.rows_with(specialty_n), page.rows_with(wording_n)
     notes: list[str] = []
@@ -367,6 +386,10 @@ def _event_fact(page: PageText, vision: VisionPage, event: VisionEvent) -> Event
         )
     if near:
         s, w = near[0]
+        source_text = s.text if s == w else f"{s.text} {w.text}"
+        expected = wording_types(source_text)
+        if not expected:
+            return None
         evidence = set(page.refs(s, specialty_n)) | set(page.refs(w, wording_n))
         verification = VERIFIED
     else:
@@ -424,9 +447,11 @@ def interpret_page(spans: Sequence[TextSpan], vision: VisionPage) -> UnitInterpr
     lab_facts = tuple(_lab_fact(page, vision, row) for row in vision.lab_rows)
     # Events without source wording, or mention-only wording, stay out of visit rows (D36).
     events = tuple(
-        _event_fact(page, vision, event)
+        fact
         for event in vision.events
         if clean(event.wording) and wording_types(event.wording)
+        for fact in (_event_fact(page, vision, event),)
+        if fact is not None
     )
     warnings = []
     if vision.handwriting:
