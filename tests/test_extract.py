@@ -59,6 +59,78 @@ def test_value_absent_from_text_is_unverified():
     assert fact.verification == "unverified reading"
 
 
+def test_reference_interval_value_does_not_verify_as_result():
+    spans = row(80, [(10, "Ferritin"), (150, "12"), (230, "ng/mL"), (320, "15-150")])
+    page = page_of(lab_rows=[lab("Ferritin", "15", unit="ng/mL")])
+    (fact,) = interpret_page(spans, page).lab_facts
+    assert fact.verification == "unverified reading"
+    assert "VALUE_NOT_AT_RESULT" in fact.notes
+
+
+def test_unit_from_another_analyte_row_is_not_inherited():
+    spans = row(60, [(10, "Ferritin"), (150, "12"), (230, "ng/mL")]) + row(
+        80, [(10, "Hemoglobin"), (150, "135"), (230, "g/L")]
+    )
+    page = page_of(lab_rows=[lab("Hemoglobin", "135", unit="ng/mL")])
+    (fact,) = interpret_page(spans, page).lab_facts
+    assert fact.verification == "unverified reading"
+    assert "UNIT_NOT_LOCATED" in fact.notes
+
+
+def test_fabricated_reference_interval_and_flag_are_omitted():
+    spans = row(80, [(10, "Ferritin"), (150, "12"), (230, "ng/mL")])
+    page = page_of(
+        lab_rows=[lab("Ferritin", "12", unit="ng/mL", reference_interval="99-999", flag="H")]
+    )
+    (fact,) = interpret_page(spans, page).lab_facts
+    assert fact.verification == "unverified reading"
+    assert fact.reference_interval is None and fact.flag is None
+    assert "REFERENCE_NOT_LOCATED" in fact.notes and "FLAG_NOT_LOCATED" in fact.notes
+
+
+def test_report_date_cannot_become_specimen_timeline():
+    spans = row(20, [(10, "Report issued: 12.03.2024")]) + row(
+        80, [(10, "Ferritin"), (150, "12"), (230, "ng/mL")]
+    )
+    page = page_of(
+        lab_rows=[lab("Ferritin", "12", unit="ng/mL")],
+        dates=[{"raw": "12.03.2024", "role": "specimen"}],
+    )
+    (fact,) = interpret_page(spans, page).lab_facts
+    assert fact.timeline.role is None
+    assert "DATE_ROLE_UNSUPPORTED" in fact.notes
+
+
+def test_letterhead_wording_does_not_create_an_event_row():
+    spans = row(20, [(10, "Urology clinic letterhead")])
+    page = page_of(
+        document_class="visit_note",
+        events=[
+            {
+                "specialty": "urology",
+                "event_type": "encounter",
+                "wording": "Urology clinic letterhead",
+            }
+        ],
+    )
+    assert interpret_page(spans, page).events == ()
+
+
+def test_negated_consultation_is_not_a_verified_encounter():
+    spans = row(20, [(10, "No urology consultation occurred")])
+    page = page_of(
+        document_class="visit_note",
+        events=[
+            {
+                "specialty": "urology",
+                "event_type": "encounter",
+                "wording": "No urology consultation occurred",
+            }
+        ],
+    )
+    assert interpret_page(spans, page).events == ()
+
+
 def test_unit_not_in_row_or_header_keeps_reading_unverified():
     page = page_of(lab_rows=[lab("Hemoglobin", "13.5", unit="mmol/L")])
     (fact,) = interpret_page(table(), page).lab_facts

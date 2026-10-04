@@ -3,7 +3,8 @@
 Decisions resolved on 2026-10-03 while reviewing
 [the project pivot](../PROJECT_PIVOT_2026-10-03.md). They refine the pivot and
 take precedence where the pivot left a choice open. They describe intended
-behavior; nothing here is implemented yet.
+behavior. Verified implementation status and test evidence are tracked in
+[implementation-checklist.md](implementation-checklist.md), not in this file.
 
 The architecture that follows from these decisions is in
 [architecture.md](architecture.md).

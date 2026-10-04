@@ -7,8 +7,10 @@ from decimal import Decimal, InvalidOperation
 from filebrownie.evidence.models import TextSpan
 from filebrownie.evidence.normalize import normalize
 from filebrownie.interpretation.dates import DateValue, parse_date
+from filebrownie.evidence.normalize import contains_token
 from filebrownie.interpretation.grounding import (
     PageText,
+    Row,
     clean,
     ground_lab_row,
     uncovered_lab_rows,
@@ -45,19 +47,74 @@ def parse_value(raw: str) -> tuple[str | None, str | None, bool]:
     return None, None, not any(character.isdigit() for character in raw)
 
 
+_SPECIMEN_CUES = ("specimen", "collected", "collection", "забор", "взят", "взяті", "зразок")
+_REPORT_CUES = ("report", "issued", "видано", "видан", "результат")
+_NEGATION = re.compile(
+    r"(?:^|\s)(?:no|not|never|denied|without|не|нет|ні|відсут)(?:\s|$)",
+    re.IGNORECASE,
+)
+
+
+def _date_row(page: PageText, evidence: tuple[int, ...]) -> Row | None:
+    if not evidence:
+        return None
+    index = evidence[0]
+    for row in page.rows:
+        if index in row.indices:
+            return row
+    return None
+
+
+def _supported_date_role(page: PageText, claim: VisionDate, evidence: tuple[int, ...]) -> str:
+    """Return the role when located text supports it; otherwise `unsupported` or `unspecified`."""
+    row = _date_row(page, evidence)
+    if row is None:
+        return "unsupported"
+    text = row.text
+    if claim.role == "specimen":
+        return "specimen" if any(cue in text for cue in _SPECIMEN_CUES) else "unsupported"
+    if claim.role == "report":
+        return "report" if any(cue in text for cue in _REPORT_CUES) else "unsupported"
+    if claim.role == "event":
+        if any(cue in text for cue in _SPECIMEN_CUES + _REPORT_CUES):
+            return "unsupported"
+        return "event"
+    if claim.role == "unspecified":
+        return "unspecified"
+    return "unsupported"
+
+
 def _dates(
     page: PageText, claims: Sequence[VisionDate], planned: bool = False
 ) -> list[ReportedDate]:
-    return [
-        ReportedDate(claim.raw, claim.role, parse_date(claim.raw), page.locate(claim.raw), planned)
-        for claim in claims
-    ]
+    reported: list[ReportedDate] = []
+    for claim in claims:
+        evidence = page.locate(claim.raw)
+        role = _supported_date_role(page, claim, evidence) if evidence else "unsupported"
+        if not evidence:
+            reported.append(
+                ReportedDate(claim.raw, claim.role, parse_date(claim.raw), (), planned)
+            )
+            continue
+        if role == "unsupported":
+            reported.append(
+                ReportedDate(claim.raw, claim.role, parse_date(claim.raw), evidence, planned)
+            )
+            continue
+        reported.append(
+            ReportedDate(claim.raw, role, parse_date(claim.raw), evidence, planned)
+        )
+    return reported
 
 
 def build_timeline(dates: Sequence[ReportedDate], preference: Sequence[str]) -> Timeline:
     """Use the highest-priority reported role. Ambiguity is kept, never resolved (D34)."""
     for role in preference:
-        chosen = [item for item in dates if item.role == role]
+        chosen = [
+            item
+            for item in dates
+            if item.grounded and item.role == role and item.alternatives
+        ]
         if not chosen:
             continue
         alternatives: list[DateValue] = []
@@ -72,6 +129,12 @@ def _lab_dates(row: VisionLabRow, page_dates: Sequence[VisionDate]) -> list[Visi
     return [*row.dates, *(claim for claim in page_dates if claim.role not in own_roles)]
 
 
+def _shared_result_row(page: PageText, label: str, value: str) -> Row | None:
+    label_n, value_n = clean(label), clean(value)
+    shared = [row for row in page.rows_with(label_n) if row in page.rows_with(value_n)]
+    return shared[0] if shared else None
+
+
 def _lab_fact(page: PageText, vision: VisionPage, row: VisionLabRow) -> LabFact:
     grounding = ground_lab_row(page, row.label, row.value, row.unit, row.specimen)
     dates = _dates(page, _lab_dates(row, vision.dates))
@@ -79,10 +142,14 @@ def _lab_fact(page: PageText, vision: VisionPage, row: VisionLabRow) -> LabFact:
     verification = grounding.verification
     evidence = set(grounding.evidence)
     for item in dates:
-        if item.grounded:
-            evidence |= set(item.evidence)
-        else:
+        if not item.grounded:
             notes.append("DATE_NOT_LOCATED")
+            if verification == VERIFIED:
+                verification = UNVERIFIED
+            continue
+        evidence |= set(item.evidence)
+        if item.role == "unsupported":
+            notes.append("DATE_ROLE_UNSUPPORTED")
             if verification == VERIFIED:
                 verification = UNVERIFIED
     if verification == VERIFIED and vision.context_missing:
@@ -91,6 +158,23 @@ def _lab_fact(page: PageText, vision: VisionPage, row: VisionLabRow) -> LabFact:
     timeline = build_timeline(dates, LAB_DATE_PREFERENCE)
     if timeline.role is not None and not timeline.alternatives:
         notes.append("DATE_UNPARSEABLE")
+    result_row = _shared_result_row(page, row.label, row.value)
+    reference_interval = row.reference_interval
+    flag = row.flag
+    if reference_interval:
+        needle = clean(reference_interval)
+        if result_row is None or not needle or not contains_token(result_row.text, needle):
+            notes.append("REFERENCE_NOT_LOCATED")
+            reference_interval = None
+            if verification == VERIFIED:
+                verification = UNVERIFIED
+    if flag:
+        needle = clean(flag)
+        if result_row is None or not needle or not contains_token(result_row.text, needle):
+            notes.append("FLAG_NOT_LOCATED")
+            flag = None
+            if verification == VERIFIED:
+                verification = UNVERIFIED
     comparator, number, qualitative = parse_value(row.value)
     return LabFact(
         row.label,
@@ -99,8 +183,8 @@ def _lab_fact(page: PageText, vision: VisionPage, row: VisionLabRow) -> LabFact:
         number,
         qualitative,
         row.unit,
-        row.reference_interval,
-        row.flag,
+        reference_interval,
+        flag,
         None if "SPECIMEN_NOT_LOCATED" in grounding.notes else row.specimen,
         tuple(dates),
         timeline,
@@ -137,9 +221,21 @@ _CUES: dict[str, tuple[str, ...]] = {
 }
 
 
+def _cue_supported(text: str, cue: str) -> bool:
+    index = text.find(cue)
+    if index < 0:
+        return False
+    prefix = text[:index]
+    return _NEGATION.search(prefix[-20:]) is None
+
+
 def wording_types(wording: str) -> set[str]:
     text = normalize(wording)
-    found = {name for name, cues in _CUES.items() if any(cue in text for cue in cues)}
+    found = {
+        name
+        for name, cues in _CUES.items()
+        if any(_cue_supported(text, cue) for cue in cues)
+    }
     if "recommendation" in found:
         return {"other"}
     if found & {"referral", "appointment_scheduled", "appointment_confirmed"}:
@@ -160,10 +256,17 @@ _DIRECT_CLASSES = {
 }
 
 
-def evidence_strength(event: VisionEvent, document_class: str, handwriting: bool) -> str:
+def evidence_strength(
+    event: VisionEvent, document_class: str, handwriting: bool, verified: bool
+) -> str:
     """direct / indirect / weak per D41; separate from source verification."""
     if handwriting:
         return "weak"
+    if not verified:
+        return "indirect"
+    expected = wording_types(event.wording) if clean(event.wording) else set()
+    if expected and event.event_type not in expected:
+        return "indirect"
     return (
         "direct" if document_class in _DIRECT_CLASSES.get(event.event_type, set()) else "indirect"
     )
@@ -181,6 +284,23 @@ def _event_fact(page: PageText, vision: VisionPage, event: VisionEvent) -> Event
         if s == w
         or (s.y is not None and w.y is not None and abs(s.y - w.y) <= 3 * max(s.height, w.height))
     ]
+    expected = wording_types(event.wording) if wording_n else set()
+    if not expected:
+        return EventFact(
+            event.specialty,
+            event.event_type,
+            event.recommendation,
+            event.wording,
+            event.planned,
+            "indirect",
+            (),
+            Timeline(None, ()),
+            UNVERIFIED,
+            (),
+            None,
+            (),
+            ("EVENT_WORDING_INSUFFICIENT",),
+        )
     if near:
         s, w = near[0]
         evidence = set(page.refs(s, specialty_n)) | set(page.refs(w, wording_n))
@@ -189,20 +309,27 @@ def _event_fact(page: PageText, vision: VisionPage, event: VisionEvent) -> Event
         notes.append("EVENT_NOT_GROUNDED" if wording_n else "EVENT_WORDING_MISSING")
     dates = _dates(page, event.dates, planned=event.planned)
     for item in dates:
-        if item.grounded:
-            evidence |= set(item.evidence)
-        else:
+        if not item.grounded:
             notes.append("DATE_NOT_LOCATED")
             if verification == VERIFIED:
                 verification = UNVERIFIED
+            continue
+        evidence |= set(item.evidence)
+        if item.role == "unsupported":
+            notes.append("DATE_ROLE_UNSUPPORTED")
+            if verification == VERIFIED:
+                verification = UNVERIFIED
     alternative, alternative_evidence = None, ()
-    expected = wording_types(event.wording) if wording_n else set()
     if verification == VERIFIED and expected and event.event_type not in expected:
         verification = CONFLICTING
         alternative = sorted(expected)[0]
         alternative_evidence = tuple(sorted(evidence))
         notes.append("EVENT_TYPE_DISAGREES")
-    own = [item for item in dates if item.role == "event"]
+    own = [
+        item
+        for item in dates
+        if item.grounded and item.role == "event" and item.alternatives
+    ]
     timeline = build_timeline(own, EVENT_DATE_PREFERENCE)
     if timeline.role is not None and not timeline.alternatives:
         notes.append("DATE_UNPARSEABLE")
@@ -212,7 +339,9 @@ def _event_fact(page: PageText, vision: VisionPage, event: VisionEvent) -> Event
         event.recommendation,
         event.wording,
         event.planned,
-        evidence_strength(event, vision.document_class, vision.handwriting),
+        evidence_strength(
+            event, vision.document_class, vision.handwriting, verification == VERIFIED
+        ),
         tuple(dates),
         timeline,
         verification,
@@ -226,9 +355,11 @@ def _event_fact(page: PageText, vision: VisionPage, event: VisionEvent) -> Event
 def interpret_page(spans: Sequence[TextSpan], vision: VisionPage) -> UnitInterpretation:
     page = PageText.build(spans)
     lab_facts = tuple(_lab_fact(page, vision, row) for row in vision.lab_rows)
-    # Events without source wording are mention-only evidence, never rows (D36).
+    # Events without source wording, or mention-only wording, stay out of visit rows (D36).
     events = tuple(
-        _event_fact(page, vision, event) for event in vision.events if clean(event.wording)
+        _event_fact(page, vision, event)
+        for event in vision.events
+        if clean(event.wording) and wording_types(event.wording)
     )
     warnings = []
     if vision.handwriting:

@@ -263,6 +263,16 @@ class FactReader:
                 return table, rows[0]
         return None
 
+    def unit_spans(
+        self, generation_id: UUID, content_hash: str, format: str, unit_number: int
+    ) -> list[dict]:
+        return self.connection.execute(
+            "SELECT span_index, text, x0, y0, x1, y1, reader FROM text_spans "
+            "WHERE generation_id = %s AND content_hash = %s AND format = %s AND unit_number = %s "
+            "ORDER BY span_index",
+            (generation_id, content_hash, format, unit_number),
+        ).fetchall()
+
     def spans(
         self, generation_id: UUID, content_hash: str, format: str, unit: int, indices: list[int]
     ) -> list[dict]:
@@ -295,7 +305,8 @@ class FactReader:
             "AND s.format = u.format ORDER BY s.relative_path) AS sources "
             "FROM unit_outcomes u WHERE u.generation_id = %s AND (u.status <> 'completed' "
             "OR u.warnings && ARRAY['HANDWRITING_NOT_INTERPRETED', 'MISSING_CONTEXT', "
-            "'POSSIBLE_INCOMPLETE_TABLE_EXTRACTION']) ORDER BY u.content_hash, u.unit_number",
+            "'POSSIBLE_INCOMPLETE_TABLE_EXTRACTION', 'VISION_ITEMS_DROPPED', "
+            "'TEXT_LAYER_COVERAGE_UNVERIFIED']) ORDER BY u.content_hash, u.unit_number",
             (generation_id,),
         ).fetchall()
 
@@ -318,9 +329,7 @@ class FactReader:
             "ARRAY(SELECT s.relative_path FROM generation_sources s "
             "WHERE s.generation_id = r.generation_id AND s.content_hash = r.content_hash "
             "AND s.format = r.format ORDER BY s.relative_path) AS sources "
-            "FROM generation_reads r WHERE r.generation_id = %s AND r.status <> 'completed' "
-            "AND NOT EXISTS (SELECT 1 FROM unit_outcomes u WHERE u.generation_id = r.generation_id "
-            "AND u.content_hash = r.content_hash AND u.format = r.format)",
+            "FROM generation_reads r WHERE r.generation_id = %s AND r.status <> 'completed'",
             (generation_id,),
         ).fetchall()
         return reads

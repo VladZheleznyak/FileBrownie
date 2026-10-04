@@ -114,6 +114,49 @@ class LabGrounding:
     notes: tuple[str, ...] = ()
 
 
+_UNIT_LIKE = re.compile(r"(?:[a-zа-яіїєґµμ%]+[a-zа-яіїєґ0-9^*]*/[a-zа-яіїєґ0-9^*.]+)|%")
+_INTERVAL = re.compile(r"\d+(?:\.\d+)?\s*[-–—]\s*\d+(?:\.\d+)?")
+_STANDALONE_NUMBER = re.compile(r"(?<![\w.])[<>≤≥]?\d+(?:\.\d+)?(?![\w.])")
+
+
+def looks_like_lab_row(row: Row) -> bool:
+    """Heuristic for a laboratory table row: label, a standalone value, and a unit or interval."""
+    text = row.text
+    has_interval = _INTERVAL.search(text) is not None
+    stripped = _INTERVAL.sub(" ", text)
+    if not re.match(r"^\W*[^\W\d_]{3,}", stripped):
+        return False
+    if _STANDALONE_NUMBER.search(stripped) is None:
+        return False
+    return has_interval or _UNIT_LIKE.search(stripped) is not None
+
+
+def _result_row_text(text: str) -> str:
+    """Row text with reference intervals removed so result values can be distinguished."""
+    return _INTERVAL.sub(" ", text)
+
+
+def value_at_result_position(row: Row, value_n: str) -> bool:
+    """True when `value_n` is a standalone token in the row, not only inside a reference interval."""
+    if not value_n or not contains_token(row.text, value_n):
+        return False
+    return contains_token(_result_row_text(row.text), value_n)
+
+
+def _header_rows_above(page: PageText, row: Row) -> list[Row]:
+    """Non-result rows above `row`, nearest first; only these may supply inherited unit/specimen."""
+    return [other for other in page.above(row) if not looks_like_lab_row(other)]
+
+
+def _inherit_field(page: PageText, row: Row, needle: str) -> tuple[Row, str] | None:
+    if contains_token(row.text, needle):
+        return (row, needle)
+    return next(
+        ((header, needle) for header in _header_rows_above(page, row) if contains_token(header.text, needle)),
+        None,
+    )
+
+
 def _geometric_label(page: PageText, row: Row, value: str) -> tuple[str, tuple[int, ...]]:
     """Text to the left of the value span in its row, as written."""
     parts, refs = [], []
@@ -145,24 +188,19 @@ def ground_lab_row(
     shared = [row for row in label_rows if row in value_rows]
     if shared:
         row = shared[0]
+        if not value_at_result_position(row, value_n):
+            return LabGrounding(
+                "unverified reading",
+                tuple(sorted(page.refs(row, label_n))),
+                notes=("VALUE_NOT_AT_RESULT",),
+            )
         evidence = set(page.refs(row, label_n)) | set(page.refs(row, value_n))
         notes = []
         for claimed, name in ((unit, "UNIT"), (specimen, "SPECIMEN")):
             needle = clean(claimed)
             if not needle:
                 continue
-            hit = None
-            if contains_token(row.text, needle):
-                hit = (row, needle)
-            else:
-                hit = next(
-                    (
-                        (other, needle)
-                        for other in page.above(row)
-                        if contains_token(other.text, needle)
-                    ),
-                    None,
-                )
+            hit = _inherit_field(page, row, needle)
             if hit is None:
                 notes.append(f"{name}_NOT_LOCATED")
             else:
@@ -192,23 +230,6 @@ def ground_lab_row(
                 ("ANALYTE_ASSIGNMENT_DISAGREES",),
             )
     return LabGrounding("unverified reading", (), notes=("ASSOCIATION_NOT_LOCATED",))
-
-
-_UNIT_LIKE = re.compile(r"(?:[a-zа-яіїєґµμ%]+[a-zа-яіїєґ0-9^*]*/[a-zа-яіїєґ0-9^*.]+)|%")
-_INTERVAL = re.compile(r"\d+(?:\.\d+)?\s*[-–—]\s*\d+(?:\.\d+)?")
-_STANDALONE_NUMBER = re.compile(r"(?<![\w.])[<>≤≥]?\d+(?:\.\d+)?(?![\w.])")
-
-
-def looks_like_lab_row(row: Row) -> bool:
-    """Heuristic for a laboratory table row: label, a standalone value, and a unit or interval."""
-    text = row.text
-    has_interval = _INTERVAL.search(text) is not None
-    stripped = _INTERVAL.sub(" ", text)
-    if not re.match(r"^\W*[^\W\d_]{3,}", stripped):
-        return False
-    if _STANDALONE_NUMBER.search(stripped) is None:
-        return False
-    return has_interval or _UNIT_LIKE.search(stripped) is not None
 
 
 def uncovered_lab_rows(page: PageText, covered: set[int]) -> list[Row]:

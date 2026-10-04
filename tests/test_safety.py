@@ -183,6 +183,32 @@ def test_erase_without_a_terminal_does_not_confirm(repository, env, monkeypatch)
     assert repository.active_generation_id() is not None
 
 
+def test_erase_derived_reports_cleanup_incomplete_and_retry_succeeds(
+    repository, env, monkeypatch, capsys
+):
+    source, data = env
+    scanned(repository, env)
+    original_clear = erasure._clear_directory
+    calls = {"n": 0}
+
+    def flaky_clear(path, name):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OSError("cleanup failed")
+        return original_clear(path, name)
+
+    monkeypatch.setattr(erasure, "_clear_directory", flaky_clear)
+    assert cli.main(["erase", "derived"]) == 2
+    assert "ERASE_CLEANUP_INCOMPLETE" in capsys.readouterr().err
+    assert (
+        repository.connection.execute("SELECT count(*) AS n FROM generations").fetchone()["n"] == 0
+    )
+    assert list((data / "evidence").iterdir())
+    capsys.readouterr()
+    assert cli.main(["erase", "derived"]) == 0
+    assert not list((data / "evidence").iterdir())
+
+
 def test_erase_refuses_a_symlinked_generated_folder_and_changes_nothing(
     repository, env, tmp_path, capsys
 ):

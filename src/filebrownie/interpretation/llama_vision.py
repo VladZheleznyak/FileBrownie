@@ -9,6 +9,7 @@ import base64
 import hashlib
 import http.client
 import json
+import os
 import urllib.parse
 
 from filebrownie.interpretation.vision import (
@@ -126,8 +127,9 @@ class LlamaVisionClient:
         if parts.scheme != "http" or not parts.hostname:
             raise SetupError("MODEL_SERVICE_URL_INVALID")
         self.host, self.port = parts.hostname, parts.port or 80
+        runtime = os.environ.get("FILEBROWNIE_LLAMA_IMAGE", "unknown")
         self.version = (
-            f"{MODEL_NAME};weights={component_version('vision')};prompt="
+            f"{MODEL_NAME};weights={component_version('vision')};runtime={runtime};prompt="
             f"{_short_hash([SYSTEM_PROMPT, USER_PROMPT])};schema={_short_hash(SCHEMA)};"
             f"temp=0;max_tokens={MAX_OUTPUT_TOKENS}"
         )

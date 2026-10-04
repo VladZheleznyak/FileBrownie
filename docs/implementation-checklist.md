@@ -6,13 +6,14 @@ scope and does not replace those documents.
 
 Status: the Phase 1 pipeline (readers, Tesseract OCR, local Qwen2.5-VL vision, grounded
 verification, activation, dictionary, `labs`/`visits`, checks, erasure) and the Phase 2
-hardening items below are implemented and covered by synthetic tests (226 tests, run through
-Compose, including real OCR and the real model service on the reference GPU). A box is checked
-only where implementation and validation evidence exist; the evidence is named in the item.
-Synthetic success does not establish medical extraction accuracy. **No real document has been
-processed**; user-led real-data review (D37) is the next step and Phase 2's manual-check
-evaluation stays open until those checks exist. Run application commands and checks through
-Docker Compose.
+hardening items below are implemented. A box is checked only where implementation and
+validation evidence exist; the evidence is named in the item. Synthetic regressions from the
+2026-10-04 MVP review (lab association, date roles, event wording, coverage warnings,
+`iron-panel`, multi-span mentions, dictionary raw fallback, cache identity, host-path overlap,
+erasure cleanup retry) extend the suites cited below. Synthetic success does not establish
+medical extraction accuracy. **No real document has been processed**; user-led real-data review
+(D37) is the next step and Phase 2's manual-check evaluation stays open until those checks
+exist. Run application commands and checks through Docker Compose.
 
 ## Phase 1: runtime and privacy
 
@@ -57,7 +58,8 @@ Docker Compose.
   pruning, and independent step caches keyed by exact inputs and all relevant
   versions. Serialize CLI operations and recover locks after interruption
   (D8, D9, D33).
-  Evidence: `tests/test_activation.py`, `tests/test_pipeline.py`, `tests/test_recovery_drills.py`.
+  Evidence: `tests/test_activation.py`, `tests/test_pipeline.py`, `tests/test_recovery_drills.py`,
+  `tests/test_cache.py`, `tests/test_deployment_policy.py` (OCR code hash, pinned llama runtime).
 - [x] Validate inventory/fingerprints at every activation, repeating the check
   when an earlier staged generation is forced; detected changes and incomplete
   scans cannot be force-activated. Apply the conservative replacement guard and
@@ -68,7 +70,7 @@ Docker Compose.
 - [x] Implement derived/all erasure with typed confirmation for `erase all`.
   Preserve dictionary reviews and content-bound manual checks through derived
   erasure/pruning; label missing generated evidence unavailable (D11, D24, D33).
-  Evidence: `tests/test_safety.py`.
+  Evidence: `tests/test_safety.py` (including `ERASE_CLEANUP_INCOMPLETE` retry).
 
 ## Phase 1: extraction and histories
 
@@ -76,7 +78,9 @@ Docker Compose.
   fallback, located laboratory association verification, and preserved conflicting
   readings. Keep missing fields/context explicit, flag uninterpreted handwriting,
   and warn about detected table-row extraction discrepancies (D4, D5, D28, D37).
-  Evidence: `tests/test_pipeline.py`, `tests/test_extract.py`, `tests/test_ocr.py`, `tests/test_model_service.py`.
+  Evidence: `tests/test_pipeline.py`, `tests/test_extract.py` (reference-interval/value
+  position, cross-row unit inheritance, date roles, letterhead/negation), `tests/test_ocr.py`,
+  `tests/test_model_service.py`.
 - [x] Extract raw laboratory values, comparators, qualitative values, units,
   intervals, flags, specimen, and role-aware dates. Extract explicitly supported
   specialty events with `direct`/`indirect`/`weak` evidence strength and grounded
@@ -90,17 +94,17 @@ Docker Compose.
   time without changing source-verification states. Apply case-, Unicode-, and
   inflection-tolerant matching; inflection-only matches stay candidates
   (D15–D17, D29, D43).
-  Evidence: `tests/test_dictionary.py`.
+  Evidence: `tests/test_dictionary.py` (hyphenated group ids, rejected-pair raw fallback).
 - [x] Implement deterministic laboratory and specialty histories with date-role
   ordering, precision/alternative-preserving filters, and excluded-undated counts.
   Separate candidates from confirmed results and retain differing units
   (D18–D21, D29, D34).
-  Evidence: `tests/test_history.py`, `tests/test_latency.py`.
+  Evidence: `tests/test_history.py`, `tests/test_latency.py` (`iron-panel` group id and dates).
 - [x] Sweep located text, tolerating case and inflection, for unmatched mentions
   even when the same page/image contains a matching fact (D43). Assemble relevant coverage warnings, including table
   discrepancies of unknown analyte relevance. Show scan timestamp, dictionary
   revision, evidence references, and careful empty-result wording (D18, D28).
-  Evidence: `tests/test_history.py`.
+  Evidence: `tests/test_history.py` (partial-file coverage, multi-span mention sweep).
 - [x] Provide English terminal tables, evidence inspection, scan/status output,
   dictionary review, and local manual-check recording, including missed items
   without extracted facts. Choose exact CLI syntax during implementation

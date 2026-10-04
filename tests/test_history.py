@@ -7,7 +7,7 @@ from support import FakeVision, pdf_lines
 from filebrownie.ingestion.scan import run_full_scan
 from filebrownie.interpretation.dates import parse_date
 from filebrownie.presentation import cli
-from filebrownie.query.history import QueryError, run_query
+from filebrownie.query.history import QueryError, coverage_warnings, run_query
 from filebrownie.query.timeline import (
     IN_RANGE,
     MAY_FALL,
@@ -289,3 +289,44 @@ def test_visits_flat_timeline_with_distinct_event_types(repository, folders):
     assert "evidence: direct" in row.markers
     filtered = run_query(repository, "visits", "urologist", parse_range("2024-04-10", None))
     assert [row.fields["event"] for row in filtered.rows] == ["encounter"]
+
+
+def test_coverage_warnings_keep_partial_files_when_units_exist():
+    class Reader:
+        def unlisted_sources(self, generation_id):
+            return []
+
+        def file_problems(self, generation_id):
+            return [
+                {
+                    "sources": ["huge.pdf"],
+                    "format": "pdf",
+                    "status": "partial",
+                    "warnings": ["DOCUMENT_PAGE_LIMIT"],
+                    "page_count": 201,
+                    "unit_count": 200,
+                }
+            ]
+
+        def coverage_units(self, generation_id):
+            return []
+
+        def incomplete_table_warnings(self, generation_id):
+            return []
+
+    class Repository:
+        reader = Reader()
+
+    lines = coverage_warnings(Repository(), None, include_tables=True)
+    assert any("DOCUMENT_PAGE_LIMIT" in line and "units recorded: 200" in line for line in lines)
+
+
+def test_mention_sweep_matches_phrase_across_adjacent_spans(repository, folders):
+    source, data = folders
+    pdf_lines(
+        source / "esr.pdf",
+        [(20, 40, "erythrocyte"), (120, 40, "sedimentation"), (240, 40, "rate")],
+    )
+    run_full_scan(repository, source, data, None, FakeVision({"lab_rows": []}))
+    result = run_query(repository, "labs", "erythrocyte sedimentation rate", parse_range(None, None))
+    assert any("erythrocyte" in mention.text.lower() for mention in result.mentions)

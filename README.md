@@ -117,9 +117,8 @@ files) cannot establish source consistency and also invalidate the generation.
 Restoring earlier bytes does not reset an invalid generation. A matching
 inventory remains staged and does not establish extraction coverage.
 Validation exits `0` for a matching staged inventory, `1` for an invalid
-generation, and `2` for operational errors. This reusable revalidation
-foundation will be required at every future activation, including forced
-activation; the activation/coverage guard itself is not implemented yet.
+generation, and `2` for operational errors. Every activation, including forced
+activation, repeats the same inventory and fingerprint check (D42).
 
 Saved filenames and fingerprints are sensitive derived data stored only in the
 external PostgreSQL data directory. The full scan, activation, histories,
@@ -150,7 +149,8 @@ replacement-character-heavy text. Every PDF text page carries a
 `TEXT_LAYER_COVERAGE_UNVERIFIED` warning: a text layer does not establish that
 all visible content was read. Empty/weak text layers and JPEG images require
 OCR and remain partial. Pillow verifies JPEG content and applies EXIF rotation
-before creating its raster. No OCR or vision model is run yet.
+before creating its raster. Standalone `read` does not run OCR or vision; a full
+`scan` does (see [Phase 1 workflow](#phase-1-workflow)).
 
 The parser runs in a separate process against a fingerprint-checked generated
 copy, with stdout/stderr discarded. Original paths are opened without following
@@ -211,7 +211,8 @@ SHA-256 checksums. Missing, changed, or unsafe artifacts are cache misses and
 trigger a fresh read. Ordinary partial output needing OCR or text-quality review
 can be reused with its warnings; failed, interrupted, timed-out, or resource-limited
 reader output is retried. Previously cached artifacts remain independent of
-generation rows. Pruning and erasure are still pending.
+generation rows. Superseded generations are pruned after activation; `erase derived`
+and `erase all` remove generated data as described below.
 
 Cached evidence records the source path at artifact creation. Use
 `evidence generation` for that generation's current source aliases, and
@@ -226,9 +227,9 @@ model storage are mounted read-only into the app; generated data and PostgreSQL
 files use the external generated-data directory. PostgreSQL currently trusts
 clients on the isolated processing network; it must not be attached to a public
 network or given published ports. Docker log capture is disabled for all runtime
-services, and PostgreSQL statement/parameter logging is disabled. The reader
-routing guard and synthetic parser-diagnostic checks are implemented; full
-processing/service egress and diagnostic-leakage validation remain delivery tasks.
+services, and PostgreSQL statement/parameter logging is disabled. `doctor` and
+scan-time checks enforce egress isolation, read-only mounts, and (when configured)
+separate host source and generated-data folders.
 
 The `inference` profile runs the local vision model service (llama.cpp server,
 pinned by image digest, on the internal network, offline, with server logging
@@ -300,6 +301,8 @@ Checks are bound to document content hash and location, never to a path, and sur
 `erase derived`; evidence that is gone is labelled unavailable. `erase derived` removes
 generations, caches, rasters, proposals, and logs while keeping dictionary decisions and checks.
 `erase all` also removes them and needs the typed phrase. Sources are never touched.
+If database rows are deleted but filesystem cleanup fails, the command reports
+`ERASE_CLEANUP_INCOMPLETE`; rerun the same erase scope to finish cleanup.
 
 ### Runtime baseline and measurements (synthetic data, RTX 3060 12 GB)
 

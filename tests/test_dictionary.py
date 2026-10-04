@@ -6,7 +6,7 @@ from support import FakeVision, pdf_lines
 from filebrownie.evidence.normalize import stems
 from filebrownie.ingestion.scan import run_full_scan
 from filebrownie.presentation import cli
-from filebrownie.query.dictionary import build, load_seed, stem_key
+from filebrownie.query.dictionary import build, label_key, load_seed, stem_key
 
 
 @pytest.fixture(scope="module")
@@ -75,6 +75,22 @@ def test_proposals_and_acceptance_and_rejection(seed):
     rejected = dictionary(seed, proposals=[(key, "ferritin")], rejected=[(key, "ferritin")])
     assert rejected.match("Ferritin, serum", rejected.resolve("ferritin", "analyte")) is None
     assert rejected.propose("Ferritin, serum", "analyte") == []
+
+
+def test_group_id_with_hyphen_resolves_members(seed):
+    d = dictionary(seed)
+    scope = d.resolve("iron-panel", "analyte")
+    assert scope.group == "iron panel"
+    assert scope.concepts == frozenset(
+        {"ferritin", "serum-iron", "tibc", "transferrin-saturation"}
+    )
+
+
+def test_rejected_concept_pair_does_not_confirm_as_raw(seed):
+    key = label_key("Ferritin")
+    rejected = dictionary(seed, rejected=[(key, "ferritin")])
+    scope = rejected.resolve("ferritin", "analyte")
+    assert rejected.match("Ferritin", scope) is None
 
 
 def test_ambiguous_exact_label_is_a_candidate_for_every_meaning(seed):

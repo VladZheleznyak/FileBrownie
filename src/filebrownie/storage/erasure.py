@@ -2,6 +2,9 @@
 
 Derived data (generations and everything they own, caches, evidence rasters, proposals, logs)
 is regenerable. User decisions (dictionary reviews, manual checks) go only with `erase all`.
+Database deletion commits before filesystem cleanup; a cleanup failure leaves
+`ERASE_CLEANUP_INCOMPLETE` and generated files may remain until the same erase
+scope is run again.
 """
 
 import shutil
@@ -61,7 +64,10 @@ def erase_derived(connection: Connection, data: Path) -> ErasureResult:
             raise ErasureError("ERASE_REFUSED_UNSAFE_PATH")
     with connection.transaction():
         generations, cache = _derived_rows(connection)
-    removed = sum(_clear_directory(data, name) for name in DERIVED_DIRECTORIES)
+    try:
+        removed = sum(_clear_directory(data, name) for name in DERIVED_DIRECTORIES)
+    except OSError:
+        raise ErasureError("ERASE_CLEANUP_INCOMPLETE") from None
     return ErasureResult(generations, cache, removed)
 
 
@@ -76,5 +82,8 @@ def erase_all(connection: Connection, data: Path, phrase: str) -> ErasureResult:
         decisions = connection.execute("DELETE FROM term_decisions").rowcount
         checks = connection.execute("DELETE FROM manual_checks").rowcount
         connection.execute("UPDATE dictionary_state SET revision = revision + 1")
-    removed = sum(_clear_directory(data, name) for name in DERIVED_DIRECTORIES)
+    try:
+        removed = sum(_clear_directory(data, name) for name in DERIVED_DIRECTORIES)
+    except OSError:
+        raise ErasureError("ERASE_CLEANUP_INCOMPLETE") from None
     return ErasureResult(generations, cache, removed, decisions, checks)

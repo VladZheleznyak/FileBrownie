@@ -4,7 +4,9 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from uuid import UUID
 
+from filebrownie.evidence.models import TextSpan
 from filebrownie.evidence.normalize import contains_phrase, stems
+from filebrownie.interpretation.grounding import PageText
 from filebrownie.interpretation.dates import DateValue
 from filebrownie.query.dictionary import Dictionary, Scope, stem_key
 from filebrownie.query.timeline import (
@@ -126,27 +128,45 @@ def _fragment(key: tuple[str, ...]) -> str | None:
     return fragment.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+def _span_record(record: dict) -> TextSpan:
+    bbox = None
+    if record["x0"] is not None:
+        bbox = (record["x0"], record["y0"], record["x1"], record["y1"])
+    return TextSpan(record["text"], bbox, record["reader"])
+
+
 def sweep(
     repository, generation_id: UUID, scope: Scope, covered: set[tuple[str, str, int, int]]
 ) -> list[Mention]:
     """Mentions of any synonym in located text that no matching fact's evidence covers (D18)."""
     phrases = [stem_key(key) for key in scope.synonyms]
     fragments = sorted({f for f in (_fragment(key) for key in scope.synonyms) if f})
-    found = []
+    units: dict[tuple[str, str, int], list[str]] = {}
     for row in repository.reader.candidate_spans(generation_id, fragments):
-        key = (row["content_hash"], row["format"], row["unit_number"], row["span_index"])
-        if key in covered:
-            continue
-        span_stems = stems(row["text"])
-        if any(contains_phrase(span_stems, phrase) for phrase in phrases):
-            found.append(
-                (
-                    row["sources"],
-                    row["format"],
-                    row["unit_number"],
-                    row["text"].strip()[:100],
+        unit = (row["content_hash"], row["format"], row["unit_number"])
+        units.setdefault(unit, row["sources"])
+    found = []
+    for (content_hash, fmt, unit_number), paths in sorted(units.items()):
+        records = repository.reader.unit_spans(generation_id, content_hash, fmt, unit_number)
+        page = PageText.build(tuple(_span_record(record) for record in records))
+        seen: set[tuple[int, str]] = set()
+        for phrase in phrases:
+            if not phrase:
+                continue
+            for row in page.rows:
+                if not contains_phrase(stems(row.text), phrase):
+                    continue
+                keys = tuple(
+                    (content_hash, fmt, unit_number, index) for index in row.indices
                 )
-            )
+                if all(key in covered for key in keys):
+                    continue
+                text = " ".join(page.spans[index].text.strip() for index in row.indices)[:100]
+                marker = (unit_number, text)
+                if marker in seen:
+                    continue
+                seen.add(marker)
+                found.append((paths, fmt, unit_number, text))
     found.sort()
     return [Mention(source_text(paths, fmt, unit), unit, text) for paths, fmt, unit, text in found]
 
@@ -158,24 +178,38 @@ def coverage_warnings(repository, generation_id: UUID, include_tables: bool) -> 
         extra = f"; {', '.join(item['warnings'])}" if item["warnings"] else ""
         lines.append(f"Not processed: {item['relative_path']} ({item['status']}{extra})")
     for item in reader.file_problems(generation_id):
+        units = item["unit_count"]
         lines.append(
             f"File {item['status']}: {source_text(item['sources'], item['format'])} "
             f"(pages known: {item['page_count'] if item['page_count'] is not None else 'unknown'}"
+            f"{f'; units recorded: {units}' if units is not None else ''}"
             f"{'; ' + ', '.join(item['warnings']) if item['warnings'] else ''})"
         )
     tables = {
         (row["content_hash"], row["format"], row["unit_number"]): row
         for row in reader.incomplete_table_warnings(generation_id)
     }
+    text_layer_files: set[tuple[str, str]] = set()
     for unit in reader.coverage_units(generation_id):
         where = source_text(unit["sources"], unit["format"], unit["unit_number"])
         warnings = set(unit["warnings"])
+        file_key = (unit["content_hash"], unit["format"])
+        if "TEXT_LAYER_COVERAGE_UNVERIFIED" in warnings:
+            warnings.discard("TEXT_LAYER_COVERAGE_UNVERIFIED")
+            if file_key not in text_layer_files:
+                text_layer_files.add(file_key)
+                lines.append(
+                    "Text layer does not establish full page coverage: "
+                    f"{source_text(unit['sources'], unit['format'])}"
+                )
         if unit["status"] != "completed":
             lines.append(
                 f"Partially processed: {where} ({unit['status']}; {', '.join(sorted(warnings))})"
             )
         if "HANDWRITING_NOT_INTERPRETED" in warnings:
             lines.append(f"Handwriting not interpreted: {where}")
+        if "VISION_ITEMS_DROPPED" in warnings:
+            lines.append(f"Vision extraction dropped items: {where}")
         if include_tables and "MISSING_CONTEXT" in warnings:
             lines.append(f"Missing context (date/unit/header): {where}")
         key = (unit["content_hash"], unit["format"], unit["unit_number"])

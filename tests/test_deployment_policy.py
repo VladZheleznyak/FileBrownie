@@ -73,6 +73,12 @@ def test_model_service_is_pinned_offline_and_logless(compose):
     assert "--no-webui" in model["command"]
 
 
+def test_app_pins_the_same_llama_runtime_as_model_service(compose):
+    model_image = compose["services"]["model"]["image"]
+    app_env = compose["services"]["app"]["environment"]
+    assert app_env["FILEBROWNIE_LLAMA_IMAGE"] == model_image
+
+
 def test_database_statement_and_parameter_logging_is_off(compose):
     command = compose["services"]["db"]["command"]
     for setting in (

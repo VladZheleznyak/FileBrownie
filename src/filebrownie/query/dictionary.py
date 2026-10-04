@@ -20,6 +20,14 @@ def label_key(label: str) -> Key:
     return tokens(label)
 
 
+def lookup_keys(term: str) -> tuple[Key, ...]:
+    """Normalized keys for a query term, including hyphenated group ids such as iron-panel."""
+    keys = [label_key(term)]
+    if "-" in term:
+        keys.append(label_key(term.replace("-", " ")))
+    return tuple(dict.fromkeys(keys))
+
+
 def load_seed() -> tuple[dict, str]:
     text = files("filebrownie.query").joinpath("dictionary_seed.json").read_text()
     return json.loads(text), hashlib.sha256(text.encode()).hexdigest()
@@ -77,23 +85,36 @@ class Dictionary:
     def resolve(self, term: str, kind: str) -> Scope:
         """Concepts and synonyms for a typed term; an unknown term still searches raw labels."""
         raw = label_key(term)
-        wanted, stemmed = raw, stem_key(raw)
+        keys = lookup_keys(term)
         concepts: set[str] = set()
         group_name = None
-        for group_kind, name, group_terms, members in self.groups.values():
-            if group_kind == kind and any(
-                key == wanted or stem_key(key) == stemmed for key in group_terms
+        normalized_id = term.casefold().replace("_", "-")
+        for group_id, (group_kind, name, group_terms, members) in self.groups.items():
+            if group_kind != kind:
+                continue
+            if group_id.casefold().replace("_", "-") == normalized_id:
+                concepts |= set(members)
+                group_name = name
+            elif any(
+                any(key == wanted or stem_key(key) == stem_key(wanted) for wanted in keys)
+                for key in group_terms
             ):
                 concepts |= set(members)
                 group_name = name
-        for concept, keys in self.terms.items():
+        for concept, concept_keys in self.terms.items():
             if self.kinds[concept] == kind and any(
-                key == wanted or stem_key(key) == stemmed for key in keys
+                any(key == wanted or stem_key(key) == stem_key(wanted) for wanted in keys)
+                for key in concept_keys
             ):
                 concepts.add(concept)
-        synonyms = {raw} if raw else set()
+        for wanted in keys:
+            concepts |= self.proposals.get(wanted, set())
+            for proposal_key, proposal_concepts in self.proposals.items():
+                if stem_key(proposal_key) == stem_key(wanted):
+                    concepts |= proposal_concepts
+        synonyms: set[Key] = set(keys)
         for concept in concepts:
-            synonyms |= self.terms[concept]
+            synonyms |= self.terms.get(concept, set())
         return Scope(term, kind, frozenset(concepts), group_name, tuple(sorted(synonyms)), raw)
 
     def match(self, label: str, scope: Scope) -> LabelMatch | None:
@@ -121,10 +142,11 @@ class Dictionary:
         if best:
             status = min(best.values(), key=_RANK.__getitem__)
             return LabelMatch(status, frozenset(best))
-        if scope.raw and key == scope.raw:
-            return LabelMatch("raw", frozenset())
-        if scope.raw and stem_key(key) == stem_key(scope.raw):
-            return LabelMatch("inflected", frozenset())
+        if not scope.concepts and scope.raw:
+            if key == scope.raw:
+                return LabelMatch("raw", frozenset())
+            if stem_key(key) == stem_key(scope.raw):
+                return LabelMatch("inflected", frozenset())
         return None
 
     def propose(self, label: str, kind: str) -> list[str]:

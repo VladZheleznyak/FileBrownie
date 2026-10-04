@@ -5,6 +5,7 @@ upscaled for recognition and coordinates are mapped back to the stored raster's 
 """
 
 import csv
+import hashlib
 import io
 import os
 import resource
@@ -37,6 +38,7 @@ MAX_SCALE = 2
 MAX_PIXELS = 40_000_000
 PAGE_SEGMENTATION_MODE = "3"
 GAP_FACTOR = 1.2  # words closer than this many line heights form one span
+_IMPLEMENTATION = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:16]
 
 
 def _limits() -> None:
@@ -64,8 +66,9 @@ class TesseractOcr:
         self.executable = executable
         self.tessdata = models_dir / "tessdata"
         self.version = (
-            f"{_tesseract_version(executable)};langs={LANGUAGES};psm={PAGE_SEGMENTATION_MODE};"
-            f"data={component_version('tesseract')};scale={MAX_SCALE};gap={GAP_FACTOR}"
+            f"{_tesseract_version(executable)};code={_IMPLEMENTATION};langs={LANGUAGES};"
+            f"psm={PAGE_SEGMENTATION_MODE};data={component_version('tesseract')};"
+            f"scale={MAX_SCALE};gap={GAP_FACTOR}"
         )
 
     def read(self, image_png: bytes) -> tuple[TextSpan, ...]:

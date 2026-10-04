@@ -37,6 +37,17 @@ def configured_paths() -> tuple[Path, Path]:
         source_resolved
     ):
         raise InventoryError("SOURCE_DATA_OVERLAP")
+    host_source = os.environ.get("FILEBROWNIE_HOST_SOURCE_DIR")
+    host_data = os.environ.get("FILEBROWNIE_HOST_DATA_DIR")
+    if host_source and host_data:
+        host_source_resolved = Path(host_source).resolve()
+        host_data_resolved = Path(host_data).resolve()
+        if (
+            host_source_resolved == host_data_resolved
+            or host_source_resolved.is_relative_to(host_data_resolved)
+            or host_data_resolved.is_relative_to(host_source_resolved)
+        ):
+            raise InventoryError("SOURCE_DATA_OVERLAP")
     return source, data
 
 

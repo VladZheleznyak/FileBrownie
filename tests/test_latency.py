@@ -27,11 +27,18 @@ def test_group_and_analyte_queries_finish_far_inside_the_allowance(repository, t
             [(20, 30, f"Specimen collected: {1 + number % 28:02d}.0{1 + number % 9}.2023")],
             [],
         )
+        specimen = f"Specimen collected: {1 + number % 28:02d}.06.2023"
         for row in range(ROWS_PER_DOCUMENT):
             label = f"{ANALYTES[row % len(ANALYTES)]} {row // len(ANALYTES) or ''}".strip()
             value = f"{number}.{row}"
             lines += [(20, 50 + 12 * row, label), (200, 50 + 12 * row, value)]
-            rows.append({"label": label, "value": value})
+            rows.append(
+                {
+                    "label": label,
+                    "value": value,
+                    "dates": [{"raw": specimen.split(": ", 1)[1], "role": "specimen"}],
+                }
+            )
         pdf_lines(source / f"doc-{number:03}.pdf", lines, height=400 + 12 * ROWS_PER_DOCUMENT)
         outputs.append({"lab_rows": rows, "dates": []})
     outcome = run_full_scan(repository, source, data, None, FakeVision(outputs))
@@ -40,6 +47,10 @@ def test_group_and_analyte_queries_finish_far_inside_the_allowance(repository, t
     assert total >= DOCUMENTS * ROWS_PER_DOCUMENT * 0.9
 
     timings = {}
+    group = run_query(
+        repository, "labs", "iron-panel", parse_range("2023-01", "2023-12"), dictionary=None
+    )
+    assert group.rows or group.undated or group.candidates
     for name, term, window in (
         ("analyte", "hemoglobin", parse_range(None, None)),
         ("group", "iron-panel", parse_range("2023-01", "2023-12")),
