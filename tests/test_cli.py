@@ -6,7 +6,7 @@ from filebrownie.storage.operation import operation_lock
 
 def test_status_does_not_imply_processing(capsys):
     assert main(["status"]) == 0
-    assert "No scan, extraction, history, or database integration" in capsys.readouterr().out
+    assert "No scan, extraction, or history pipeline" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("command", ["model-service", "model-setup"])

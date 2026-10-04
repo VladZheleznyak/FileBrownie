@@ -5,7 +5,8 @@ This document describes the intended Phase 1 architecture. It follows
 [the decision record](decisions.md), cited below as D-numbers. Nothing here is
 implemented as a medical-processing pipeline yet. The repository now has the
 package/CLI and Compose scaffold plus read-only source discovery and shared
-operation locking described in the README; inference and setup
+operation locking, PostgreSQL inventory generations, and source revalidation
+described in the README; inference and setup
 services are explicit placeholders. This design remains the target, not a claim
 that its controls and features are fully implemented or verified.
 

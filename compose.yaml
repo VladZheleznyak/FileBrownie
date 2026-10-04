@@ -8,6 +8,7 @@ services:
       FILEBROWNIE_SOURCE_DIR: /sources
       FILEBROWNIE_DATA_DIR: /data
       FILEBROWNIE_MODEL_DIR: /models
+      FILEBROWNIE_DATABASE_URL: postgresql://filebrownie@db/filebrownie
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
       HF_HUB_DISABLE_TELEMETRY: "1"

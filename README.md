@@ -10,8 +10,8 @@ source evidence and visible gaps:
 It runs entirely in Docker Compose, uses only local inference during medical
 processing, and never modifies source documents. Current inputs are PDF and
 JPG/JPEG; other formats belong to vNext. The repository currently contains a
-runtime and package scaffold with read-only source discovery, not a working
-medical-processing pipeline.
+runtime and package scaffold with read-only source discovery and PostgreSQL
+inventory generations, not a working medical-processing pipeline.
 
 Keep the MVP simple: terminal histories, source references, visible uncertainty,
 and essential recovery. Optional exports, evidence crops, duplicate heuristics,
@@ -80,11 +80,46 @@ are `0` for a finished inventory (which can include unsupported formats), `1`
 for an inventory with failed/skipped entries, and `2` for setup errors or a busy
 operation. The shared lock is stored in generated-data storage and released by
 the kernel when the process exits, including after interruption. The inventory
-is shown locally and is not persisted or logged. It is not an atomic snapshot;
+is shown locally and is not logged. It is not an atomic snapshot;
 scan activation must later revalidate the full inventory and fingerprints.
 
-Scan, activation,
-histories, evidence inspection, review, and erasure are not implemented yet.
+To persist source metadata and fingerprints locally, initialize the database and
+save an inventory:
+
+```sh
+docker compose up -d --wait db
+docker compose run --rm app filebrownie migrate
+docker compose run --rm app filebrownie inventory --save
+docker compose run --rm app filebrownie status --database
+docker compose run --rm app filebrownie validate <generation-uuid>
+```
+
+Replace the final placeholder with the generation ID printed by the save
+command. Without `--save`, inventory discovery still needs no database.
+Migrations are transactional and versioned by checksum. Do not edit an applied
+migration; add a new version when evolving the schema. Database failures cross
+the CLI boundary as sanitized error codes.
+
+Inventory saves are atomic: a failed write does not replace or delete prior
+generations. A killed operation can leave a `running` generation; the next
+saved-inventory, database-status, or validation command, under the shared lock,
+marks unfinished generations `interrupted`. Saved inventories stay `staged`
+with reason `INVENTORY_ONLY`; no active medical index is created.
+
+`validate` compares all source paths and fingerprints against the folder now.
+Added, removed, or changed entries make the saved generation `invalid`.
+Entries without usable fingerprints (including skipped symlinks and unreadable
+files) cannot establish source consistency and also invalidate the generation.
+Restoring earlier bytes does not reset an invalid generation. A matching
+inventory remains staged and does not establish extraction coverage.
+Validation exits `0` for a matching staged inventory, `1` for an invalid
+generation, and `2` for operational errors. This reusable revalidation
+foundation will be required at every future activation, including forced
+activation; the activation/coverage guard itself is not implemented yet.
+
+Scan, activation, histories, evidence inspection, review, and erasure are not
+implemented yet. Saved filenames and fingerprints are sensitive derived data
+stored only in the external PostgreSQL data directory.
 
 `app` and `db` use an internal network with no published ports. Originals and
 model storage are mounted read-only into the app; generated data and PostgreSQL
@@ -104,8 +139,9 @@ and repository. GPU configuration will follow selection of the runtime.
 
 The `src/filebrownie` package separates ingestion, domain-independent evidence,
 medical interpretation, deterministic queries, storage, and CLI presentation.
-Source discovery and operation locking are implemented alongside the CLI. Tests use synthetic
-content and run inside the app image. Development tools are included in this
+Source discovery, operation locking, and inventory storage are implemented
+alongside the CLI. Tests use synthetic content and run inside the app image.
+Development tools are included in this
 initial image; no dependencies or virtual environment are installed on the host.
 
 After editing dependency declarations, refresh the lockfile using the isolated
@@ -121,3 +157,16 @@ mounts the checkout only. Keep source records and medical outputs outside the
 checkout. Image builds install uv and locked packages from package registries;
 model provisioning is separate. Use `docker compose down` to stop the database;
 this does not erase generated data or model storage.
+
+The normal pytest command skips database integration tests. Run the complete
+suite with a separate PostgreSQL service backed by temporary memory storage:
+
+```sh
+docker compose -f compose.yaml -f compose.test.yaml --profile test run --rm app pytest
+docker compose -f compose.yaml -f compose.test.yaml --profile test stop db-test
+docker compose -f compose.yaml -f compose.test.yaml --profile test rm -f db-test
+```
+
+The test service has no medical-data mounts. Integration tests create isolated
+schemas, use synthetic filenames/content, and never connect to the normal
+`db` service. Its data disappears when the test container is stopped.

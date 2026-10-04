@@ -5,6 +5,10 @@ This checklist tracks implementation of the [project pivot](../PROJECT_PIVOT_202
 scope and does not replace those documents. A package/CLI and Compose scaffold
 exists, along with read-only recursive source inventory, SHA-256 content identity,
 unsupported-file reporting, and a shared interruption-safe operation lock.
+PostgreSQL schema migrations, atomic staged inventory saves, unfinished-generation
+recovery, and source inventory/fingerprint revalidation are also implemented.
+These inventory-only generations cannot activate a medical index; the activation
+guard, evidence processing, caches, and durable user decisions remain pending.
 OCR, inference, and medical processing are not implemented. The items
 below remain unchecked until their full requirements are met. Mark an item complete only with implementation
 and relevant validation evidence; synthetic success does not establish medical
