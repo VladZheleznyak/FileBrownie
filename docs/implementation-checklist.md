@@ -8,7 +8,11 @@ unsupported-file reporting, and a shared interruption-safe operation lock.
 PostgreSQL schema migrations, atomic staged inventory saves, unfinished-generation
 recovery, and source inventory/fingerprint revalidation are also implemented.
 These inventory-only generations cannot activate a medical index; the activation
-guard, evidence processing, caches, and durable user decisions remain pending.
+guard, full evidence processing, caches, and durable user decisions remain pending.
+The first evidence readers now render PDF/JPEG units, preserve located PDF text
+and page failures, flag OCR needs, and write local inspectable artifacts through
+a resource-limited worker with discarded diagnostics and a routing guard.
+OCR/vision processing, generation-linked evidence, and step caching remain pending.
 OCR, inference, and medical processing are not implemented. The items
 below remain unchecked until their full requirements are met. Mark an item complete only with implementation
 and relevant validation evidence; synthetic success does not establish medical

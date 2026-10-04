@@ -11,7 +11,8 @@ It runs entirely in Docker Compose, uses only local inference during medical
 processing, and never modifies source documents. Current inputs are PDF and
 JPG/JPEG; other formats belong to vNext. The repository currently contains a
 runtime and package scaffold with read-only source discovery and PostgreSQL
-inventory generations, not a working medical-processing pipeline.
+inventory generations and bounded PDF/JPEG evidence readers, not a working
+medical-processing pipeline.
 
 Keep the MVP simple: terminal histories, source references, visible uncertainty,
 and essential recovery. Optional exports, evidence crops, duplicate heuristics,
@@ -117,17 +118,68 @@ generation, and `2` for operational errors. This reusable revalidation
 foundation will be required at every future activation, including forced
 activation; the activation/coverage guard itself is not implemented yet.
 
-Scan, activation, histories, evidence inspection, review, and erasure are not
+Scan, activation, histories, dictionary review, and erasure are not
 implemented yet. Saved filenames and fingerprints are sensitive derived data
 stored only in the external PostgreSQL data directory.
+
+## First evidence readers
+
+Read one supported file using its relative path from the inventory, then inspect
+the resulting reference:
+
+```sh
+docker compose run --rm app filebrownie read synthetic-report.pdf
+docker compose run --rm app filebrownie evidence show <evidence-uuid>
+```
+
+Replace the example filename and UUID with local values. These commands hold the
+shared application lock. The reader checks runtime routing before processing
+and fails closed on gateway/default routes, public IPv4 routes, global IPv6
+addresses, or unavailable route information. This guard supplements the Compose
+internal network; it sends no external probes or requests.
+
+PyMuPDF reads PDF text and renders pages at 150 DPI. Text spans retain original
+English, Russian, or Ukrainian strings and bounding boxes in rendered-image
+pixels, accounting for page rotation. Unusable bounding boxes fall back to
+page-level locations with a warning. A basic text-quality check flags sparse or
+replacement-character-heavy text. Every PDF text page carries a
+`TEXT_LAYER_COVERAGE_UNVERIFIED` warning: a text layer does not establish that
+all visible content was read. Empty/weak text layers and JPEG images require
+OCR and remain partial. Pillow verifies JPEG content and applies EXIF rotation
+before creating its raster. No OCR or vision model is run yet.
+
+The parser runs in a separate process against a fingerprint-checked generated
+copy, with stdout/stderr discarded. Original paths are opened without following
+symlinks. Parser diagnostics and raw exceptions are not retained. The copy is
+removed afterward; evidence, rasters, and manifests stay under the external
+generated-data directory in `evidence/<opaque-uuid>/`. Artifacts record content
+hashes, source references, reader dependency versions, page/image counts, one
+processing status, and concurrent warnings. Reader results are not yet linked
+to PostgreSQL generations or a step cache.
+
+Initial limits are 64 MiB input, 200 PDF pages, 8 million pixels per page/image,
+100 million retained document pixels, 256 MiB raster output, 16 MiB manifests,
+768 MiB parser address space, 60 seconds CPU time, and 90 seconds wall time.
+Limits are implementation defaults, not measured workload guarantees. A failed
+PDF page does not discard successful pages. Written page manifests also preserve
+earlier evidence if a worker times out or terminates. File-open failures keep
+page counts unknown; page/resource limits expose unprocessed coverage.
+Password-protected PDFs are explicitly unsupported.
+
+Reader status `completed` means this reader finished its required steps,
+not complete medical extraction. `read` and `evidence show` return `0` for
+completed reader output, `1` for partial/failed/unsupported output, and `2`
+for operational errors. Inspection is intentional local product output and may
+show sensitive source text; Docker capture remains disabled.
 
 `app` and `db` use an internal network with no published ports. Originals and
 model storage are mounted read-only into the app; generated data and PostgreSQL
 files use the external generated-data directory. PostgreSQL currently trusts
 clients on the isolated processing network; it must not be attached to a public
 network or given published ports. Docker log capture is disabled for all runtime
-services, and PostgreSQL statement/parameter logging is disabled. Runtime egress
-refusal and sensitive-diagnostic leakage checks remain implementation tasks.
+services, and PostgreSQL statement/parameter logging is disabled. The reader
+routing guard and synthetic parser-diagnostic checks are implemented; full
+processing/service egress and diagnostic-leakage validation remain delivery tasks.
 
 The `inference` profile reserves a local model service; the `setup` profile
 reserves a network-enabled provisioning service with model storage only. Both
@@ -139,8 +191,8 @@ and repository. GPU configuration will follow selection of the runtime.
 
 The `src/filebrownie` package separates ingestion, domain-independent evidence,
 medical interpretation, deterministic queries, storage, and CLI presentation.
-Source discovery, operation locking, and inventory storage are implemented
-alongside the CLI. Tests use synthetic content and run inside the app image.
+Source discovery, operation locking, inventory storage, and the first evidence
+readers are implemented alongside the CLI. Tests use synthetic content and run inside the app image.
 Development tools are included in this
 initial image; no dependencies or virtual environment are installed on the host.
 

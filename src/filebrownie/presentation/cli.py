@@ -1,14 +1,18 @@
 """English CLI output; source references are intentional output, never logs."""
 
 import argparse
+import json
 import os
 import sys
+import unicodedata
 from collections.abc import Sequence
 from contextlib import nullcontext
 from pathlib import Path
 from uuid import UUID
 
 from filebrownie import __version__
+from filebrownie.evidence.network import NetworkIsolationError, ensure_isolated_network
+from filebrownie.evidence.readers import ReaderError, inspect_evidence, read_document
 from filebrownie.ingestion.discovery import DiscoveryStatus, InventoryError, discover_sources
 from filebrownie.storage.database import DatabaseError, open_repository
 from filebrownie.storage.operation import OperationBusyError, OperationLockError, operation_lock
@@ -117,6 +121,69 @@ def database_command(command: str, generation_id: UUID | None = None) -> int:
         return 130
 
 
+def evidence_command(source_name: str | None = None, reference: UUID | None = None) -> int:
+    try:
+        source, data = configured_paths()
+        with operation_lock(data):
+            if reference is None:
+                ensure_isolated_network()
+                record = next(
+                    (
+                        item
+                        for item in discover_sources(source).records
+                        if item.relative_path == source_name
+                    ),
+                    None,
+                )
+                if record is None:
+                    raise ReaderError("SOURCE_NOT_FOUND")
+                result = read_document(source, record, data)
+            else:
+                result = inspect_evidence(data, str(reference))
+            print(f"Evidence reference: {result.reference}")
+            print(f"Source: {ascii(result.source)}")
+            print(f"Reader status: {result.evidence.status}")
+            count = result.evidence.page_count
+            print(f"Page/image count: {count if count is not None else 'unknown'}")
+            print(f"Warnings: {', '.join(result.evidence.warnings) or '-'}")
+            print(
+                "Reader output only. OCR, vision extraction, and medical verification are pending."
+            )
+            for unit in result.evidence.units:
+                print(
+                    f"Unit {unit.number}: {unit.status}; spans: {len(unit.spans)}; "
+                    f"warnings: {', '.join(unit.warnings) or '-'}"
+                )
+                if reference is not None:
+                    for span in unit.spans:
+                        safe = "".join(
+                            character
+                            if not unicodedata.category(character).startswith("C")
+                            else character.encode("unicode_escape").decode("ascii")
+                            for character in span.text
+                        )
+                        print(
+                            f"  {span.bbox or 'page-level location'}: "
+                            f"{json.dumps(safe, ensure_ascii=False)}"
+                        )
+            return 0 if result.evidence.status == "completed" else 1
+    except (
+        InventoryError,
+        OperationLockError,
+        OperationBusyError,
+        ReaderError,
+        NetworkIsolationError,
+    ) as error:
+        print(str(error), file=sys.stderr)
+        return 2
+    except OSError:
+        print("EVIDENCE_UNAVAILABLE", file=sys.stderr)
+        return 2
+    except KeyboardInterrupt:
+        print("OPERATION_INTERRUPTED", file=sys.stderr)
+        return 130
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="filebrownie",
@@ -135,6 +202,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     commands.add_parser("migrate", help="Initialize or upgrade the local database schema.")
     validate = commands.add_parser("validate", help="Recheck a saved inventory against sources.")
     validate.add_argument("generation", type=UUID)
+    reader = commands.add_parser("read", help="Read one PDF/JPEG into local evidence artifacts.")
+    reader.add_argument("source", help="Relative path from inventory output.")
+    evidence = commands.add_parser("evidence", help="Inspect saved reader evidence.")
+    evidence_commands = evidence.add_subparsers(dest="evidence_command", required=True)
+    show = evidence_commands.add_parser("show", help="Show text with page/image locations.")
+    show.add_argument("reference", type=UUID)
     commands.add_parser("model-service", help="Reserved local inference service entry point.")
     commands.add_parser("model-setup", help="Reserved isolated model provisioning entry point.")
     args = parser.parse_args(argv)
@@ -146,7 +219,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return database_command("status")
         print(
             "Source inventory and staged database generations are available. "
-            "No scan, extraction, or history pipeline is implemented."
+            "PDF/JPEG evidence readers are available. "
+            "No scan, OCR, medical extraction, or history pipeline is implemented."
         )
         return 0
     if args.command == "inventory":
@@ -155,6 +229,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return database_command("migrate")
     if args.command == "validate":
         return database_command("validate", args.generation)
+    if args.command == "read":
+        return evidence_command(source_name=args.source)
+    if args.command == "evidence":
+        return evidence_command(reference=args.reference)
     print(
         "SETUP_NOT_IMPLEMENTED: OCR/vision baseline and versioned provisioning are pending. "
         "See docs/implementation-checklist.md.",

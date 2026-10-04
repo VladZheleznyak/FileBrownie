@@ -6,7 +6,7 @@ This document describes the intended Phase 1 architecture. It follows
 implemented as a medical-processing pipeline yet. The repository now has the
 package/CLI and Compose scaffold plus read-only source discovery and shared
 operation locking, PostgreSQL inventory generations, and source revalidation
-described in the README; inference and setup
+plus bounded PDF/JPEG evidence readers described in the README; inference and setup
 services are explicit placeholders. This design remains the target, not a claim
 that its controls and features are fully implemented or verified.
 
@@ -345,7 +345,8 @@ erase derived | erase all
 
 - The OCR engine, vision model, and runtime, selected during implementation
   using small synthetic fixtures and hardware checks (D6, D37).
-- Defensive PDF/image parsing and rendering resource limits.
+- Full-pipeline parsing/rendering limits; the first PDF/JPEG readers have bounded
+  defaults documented in the README.
 - The text-layer quality heuristics (D4).
 - Whether the step cache stores bulky artifacts in the database or as files in
   generated storage.
