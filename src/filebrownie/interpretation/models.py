@@ -20,6 +20,7 @@ class ReportedDate:
     alternatives: tuple[DateValue, ...]
     evidence: tuple[int, ...]
     planned: bool = False
+    role_supported: bool = True
 
     @property
     def grounded(self) -> bool:
@@ -30,6 +31,7 @@ class ReportedDate:
             "raw": self.raw,
             "role": self.role,
             "planned": self.planned,
+            "role_supported": self.role_supported,
             "alternatives": [item.as_json() for item in self.alternatives],
             "evidence": list(self.evidence),
         }

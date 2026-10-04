@@ -65,18 +65,42 @@ def _date_row(page: PageText, evidence: tuple[int, ...]) -> Row | None:
     return None
 
 
+def _nearest_lab_date_role_before(row_text: str, date_raw: str) -> str | None:
+    """Role cue closest to the left of the located date in the same row, if any."""
+    date_n = clean(date_raw)
+    if not date_n:
+        return None
+    start = row_text.find(date_n)
+    if start < 0:
+        return None
+    prefix = row_text[:start]
+    best_end = -1
+    best_role: str | None = None
+    for role, cues in (("specimen", _SPECIMEN_CUES), ("report", _REPORT_CUES)):
+        for cue in cues:
+            pos = prefix.rfind(cue)
+            if pos < 0:
+                continue
+            cue_end = pos + len(cue)
+            if cue_end > best_end:
+                best_end = cue_end
+                best_role = role
+    return best_role
+
+
 def _supported_date_role(page: PageText, claim: VisionDate, evidence: tuple[int, ...]) -> str:
     """Return the role when located text supports it; otherwise `unsupported` or `unspecified`."""
     row = _date_row(page, evidence)
     if row is None:
         return "unsupported"
     text = row.text
-    if claim.role == "specimen":
-        return "specimen" if any(cue in text for cue in _SPECIMEN_CUES) else "unsupported"
-    if claim.role == "report":
-        return "report" if any(cue in text for cue in _REPORT_CUES) else "unsupported"
+    if claim.role in ("specimen", "report"):
+        nearest = _nearest_lab_date_role_before(text, claim.raw)
+        if nearest != claim.role:
+            return "unsupported"
+        return claim.role
     if claim.role == "event":
-        if any(cue in text for cue in _SPECIMEN_CUES + _REPORT_CUES):
+        if _nearest_lab_date_role_before(text, claim.raw) is not None:
             return "unsupported"
         return "event"
     if claim.role == "unspecified":
@@ -84,25 +108,62 @@ def _supported_date_role(page: PageText, claim: VisionDate, evidence: tuple[int,
     return "unsupported"
 
 
+def _date_near_wording(page: PageText, wording_n: str, evidence: tuple[int, ...]) -> bool:
+    if not wording_n:
+        return False
+    date_row = _date_row(page, evidence)
+    if date_row is None:
+        return False
+    wording_rows = page.rows_with(wording_n)
+    for wording_row in wording_rows:
+        if wording_row == date_row:
+            return True
+        if (
+            wording_row.y is not None
+            and date_row.y is not None
+            and abs(wording_row.y - date_row.y) <= 3 * max(wording_row.height, date_row.height)
+        ):
+            return True
+    return False
+
+
 def _dates(
-    page: PageText, claims: Sequence[VisionDate], planned: bool = False
+    page: PageText,
+    claims: Sequence[VisionDate],
+    planned: bool = False,
+    event_wording: str | None = None,
 ) -> list[ReportedDate]:
     reported: list[ReportedDate] = []
+    wording_n = clean(event_wording) if event_wording else ""
     for claim in claims:
         evidence = page.locate(claim.raw)
-        role = _supported_date_role(page, claim, evidence) if evidence else "unsupported"
+        supported_role = _supported_date_role(page, claim, evidence) if evidence else "unsupported"
+        role_supported = supported_role != "unsupported"
+        display_role = claim.role if not role_supported else supported_role
+        if role_supported and claim.role == "event" and wording_n:
+            if not _date_near_wording(page, wording_n, evidence):
+                role_supported = False
         if not evidence:
             reported.append(
-                ReportedDate(claim.raw, claim.role, parse_date(claim.raw), (), planned)
-            )
-            continue
-        if role == "unsupported":
-            reported.append(
-                ReportedDate(claim.raw, claim.role, parse_date(claim.raw), evidence, planned)
+                ReportedDate(
+                    claim.raw,
+                    claim.role,
+                    parse_date(claim.raw),
+                    (),
+                    planned,
+                    role_supported=False,
+                )
             )
             continue
         reported.append(
-            ReportedDate(claim.raw, role, parse_date(claim.raw), evidence, planned)
+            ReportedDate(
+                claim.raw,
+                display_role,
+                parse_date(claim.raw),
+                evidence,
+                planned,
+                role_supported=role_supported,
+            )
         )
     return reported
 
@@ -113,7 +174,10 @@ def build_timeline(dates: Sequence[ReportedDate], preference: Sequence[str]) -> 
         chosen = [
             item
             for item in dates
-            if item.grounded and item.role == role and item.alternatives
+            if item.grounded
+            and item.role_supported
+            and item.role == role
+            and item.alternatives
         ]
         if not chosen:
             continue
@@ -148,7 +212,7 @@ def _lab_fact(page: PageText, vision: VisionPage, row: VisionLabRow) -> LabFact:
                 verification = UNVERIFIED
             continue
         evidence |= set(item.evidence)
-        if item.role == "unsupported":
+        if not item.role_supported:
             notes.append("DATE_ROLE_UNSUPPORTED")
             if verification == VERIFIED:
                 verification = UNVERIFIED
@@ -307,7 +371,7 @@ def _event_fact(page: PageText, vision: VisionPage, event: VisionEvent) -> Event
         verification = VERIFIED
     else:
         notes.append("EVENT_NOT_GROUNDED" if wording_n else "EVENT_WORDING_MISSING")
-    dates = _dates(page, event.dates, planned=event.planned)
+    dates = _dates(page, event.dates, planned=event.planned, event_wording=event.wording)
     for item in dates:
         if not item.grounded:
             notes.append("DATE_NOT_LOCATED")
@@ -315,7 +379,7 @@ def _event_fact(page: PageText, vision: VisionPage, event: VisionEvent) -> Event
                 verification = UNVERIFIED
             continue
         evidence |= set(item.evidence)
-        if item.role == "unsupported":
+        if not item.role_supported:
             notes.append("DATE_ROLE_UNSUPPORTED")
             if verification == VERIFIED:
                 verification = UNVERIFIED
@@ -328,7 +392,10 @@ def _event_fact(page: PageText, vision: VisionPage, event: VisionEvent) -> Event
     own = [
         item
         for item in dates
-        if item.grounded and item.role == "event" and item.alternatives
+        if item.grounded
+        and item.role_supported
+        and item.role == "event"
+        and item.alternatives
     ]
     timeline = build_timeline(own, EVENT_DATE_PREFERENCE)
     if timeline.role is not None and not timeline.alternatives:

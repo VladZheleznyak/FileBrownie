@@ -99,6 +99,26 @@ def test_report_date_cannot_become_specimen_timeline():
     (fact,) = interpret_page(spans, page).lab_facts
     assert fact.timeline.role is None
     assert "DATE_ROLE_UNSUPPORTED" in fact.notes
+    (unsupported,) = [d for d in fact.dates if d.raw == "12.03.2024"]
+    assert unsupported.role == "specimen" and not unsupported.role_supported
+
+
+def test_lab_date_role_uses_nearest_cue_to_the_left():
+    spans = row(
+        20,
+        [(10, "Specimen collected: 01.03.2024"), (200, "Report issued: 02.03.2024")],
+    ) + row(80, [(10, "Ferritin"), (150, "12"), (230, "ng/mL")])
+    page = page_of(
+        lab_rows=[lab("Ferritin", "12", unit="ng/mL")],
+        dates=[
+            {"raw": "01.03.2024", "role": "specimen"},
+            {"raw": "02.03.2024", "role": "report"},
+        ],
+    )
+    (fact,) = interpret_page(spans, page).lab_facts
+    assert fact.timeline.role == "specimen"
+    roles = {item.raw: item for item in fact.dates}
+    assert roles["01.03.2024"].role_supported and roles["02.03.2024"].role_supported
 
 
 def test_letterhead_wording_does_not_create_an_event_row():

@@ -95,11 +95,15 @@ def _date_text(role: str | None, alternatives: tuple[DateValue, ...], planned: b
 
 
 def _other_dates(dates: list[dict], chosen_role: str | None) -> str:
-    items = [
-        f"{item['role']}{' (planned)' if item['planned'] else ''}: {item['raw']}"
-        for item in dates
-        if item["role"] != chosen_role
-    ]
+    items = []
+    for item in dates:
+        if item["role"] == chosen_role:
+            continue
+        role = item["role"]
+        if not item.get("role_supported", True):
+            role = f"{role} (unsupported)"
+        suffix = " (planned)" if item["planned"] else ""
+        items.append(f"{role}{suffix}: {item['raw']}")
     return "; ".join(items)
 
 
