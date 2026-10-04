@@ -5,7 +5,7 @@ services:
     depends_on:
       db-test:
         condition: service_healthy
-    volumes: !reset
+    volumes: !override
       - models:/models:ro
     tmpfs:
       - /tmp:size=256m,mode=1777

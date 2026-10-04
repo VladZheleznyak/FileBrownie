@@ -6,6 +6,7 @@ import pytest
 import yaml
 
 COMPOSE = Path(__file__).resolve().parent.parent / "compose.yaml"
+COMPOSE_TEST = Path(__file__).resolve().parent.parent / "compose.test.yaml"
 pytestmark = pytest.mark.skipif(not COMPOSE.exists(), reason="compose.yaml is not available")
 
 
@@ -88,3 +89,11 @@ def test_database_statement_and_parameter_logging_is_off(compose):
         "logging_collector=off",
     ):
         assert setting in command
+
+
+def test_compose_test_profile_replaces_app_volumes_with_read_only_models():
+    text = COMPOSE_TEST.read_text()
+    assert "volumes: !override" in text
+    assert "models:/models:ro" in text
+    assert "FILEBROWNIE_SOURCE_DIR" not in text
+    assert "FILEBROWNIE_DATA_DIR" not in text

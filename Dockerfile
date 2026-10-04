@@ -19,5 +19,5 @@ COPY src ./src
 RUN uv sync --frozen
 COPY tests ./tests
 # Deployment policy tests read the Compose definition; it is never used to run services here.
-COPY compose.yaml ./compose.yaml
+COPY compose.yaml compose.test.yaml ./
 CMD ["filebrownie", "--help"]
