@@ -113,16 +113,13 @@ def test_eta_uses_measured_pdf_and_jpeg_rates_separately():
     opened = format_scan_progress(
         eta.note(ScanProgress(stage="step", unit=1, pages=2, step="vision", cached=False))
     )
-    assert "unknown length" not in opened
-    assert "jpeg ~30s/page" in opened
-    assert "pdf ~" in opened
+    assert opened == "  page 1/2: vision"
 
     clock["t"] = 24  # 20s of vision on page 1
     page_two = format_scan_progress(
         eta.note(ScanProgress(stage="step", unit=2, pages=2, step="vision", cached=False))
     )
-    assert "pdf 22s/page" in page_two  # 4s reader / 2 pages + 20s vision
-    assert "jpeg ~30s/page" in page_two
+    assert page_two == "  page 2/2: vision"
     clock["t"] = 44
     done = format_scan_progress(
         eta.note(

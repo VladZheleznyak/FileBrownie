@@ -207,7 +207,7 @@ def test_reader_scan_cli_and_generation_inspection(repository, scan_folders, mon
     assert "Rechecking sources." in output
     assert "Synthetic laboratory evidence" not in output
     assert "state: staged" in output
-    assert "cached: yes" in output
+    assert "reader cache hits: 1/1" in output
     assert "no OCR, vision, or medical interpretation" in output
 
 

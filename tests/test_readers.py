@@ -225,10 +225,10 @@ def test_failed_pdf_page_does_not_discard_other_pages(tmp_path, monkeypatch):
     make_pdf(directory / "input", ["Synthetic first page", "Synthetic second page"])
     original = worker._pdf_page
 
-    def fail_second(document, number, directory):
+    def fail_second(document, number, directory, dpi=worker.DPI):
         if number == 2:
             raise RuntimeError("synthetic-sensitive-parser-error")
-        return original(document, number, directory)
+        return original(document, number, directory, dpi=dpi)
 
     monkeypatch.setattr(worker, "_pdf_page", fail_second)
     worker._read_pdf(directory)

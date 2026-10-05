@@ -219,7 +219,9 @@ def _process_unit(
                         supplement_version,
                         supplement,
                         lambda cached: cached["page"],
-                        lambda hit: _step(progress, page_count, unit.number, "vision", hit),
+                        lambda hit: _step(
+                            progress, page_count, unit.number, "vision-supplement", hit
+                        ),
                     )
                     extra = parse_page(
                         {

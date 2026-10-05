@@ -7,7 +7,7 @@ from uuid import UUID
 from filebrownie.evidence.models import TextSpan
 from filebrownie.evidence.normalize import contains_phrase, stems
 from filebrownie.interpretation.dates import DateValue
-from filebrownie.interpretation.grounding import PageText
+from filebrownie.interpretation.grounding import PageText, clean
 from filebrownie.query.dictionary import Dictionary, Scope, stem_key
 from filebrownie.query.timeline import (
     MAY_FALL,
@@ -139,6 +139,39 @@ def _span_record(record: dict) -> TextSpan:
     return TextSpan(record["text"], bbox, record["reader"])
 
 
+def _newer_staged_scan(repository, active_id: UUID, active_started_at: datetime):
+    newer = [
+        item
+        for item in repository.generations()
+        if item.id != active_id
+        and item.kind == "scan"
+        and item.state == "staged"
+        and item.finished_at is not None
+        and item.started_at > active_started_at
+    ]
+    return newer[-1] if newer else None
+
+
+def _phrase_evidence_keys(
+    content_hash: str,
+    fmt: str,
+    unit_number: int,
+    page: PageText,
+    row,
+    phrase: tuple[str, ...],
+) -> tuple[tuple[str, str, int, int], ...]:
+    if not contains_phrase(stems(row.text), phrase):
+        return ()
+    refs: set[int] = set()
+    for token in phrase:
+        needle = clean(token)
+        if needle:
+            refs.update(page.refs(row, needle))
+    if not refs:
+        refs = set(row.indices)
+    return tuple((content_hash, fmt, unit_number, index) for index in sorted(refs))
+
+
 def sweep(
     repository, generation_id: UUID, scope: Scope, covered: set[tuple[str, str, int, int]]
 ) -> list[Mention]:
@@ -160,8 +193,8 @@ def sweep(
             for row in page.rows:
                 if not contains_phrase(stems(row.text), phrase):
                     continue
-                keys = tuple((content_hash, fmt, unit_number, index) for index in row.indices)
-                if all(key in covered for key in keys):
+                keys = _phrase_evidence_keys(content_hash, fmt, unit_number, page, row, phrase)
+                if keys and all(key in covered for key in keys):
                     continue
                 text = " ".join(page.spans[index].text.strip() for index in row.indices)[:100]
                 marker = (unit_number, text)
@@ -309,6 +342,13 @@ def run_query(
     result = HistoryResult(
         kind, term, scope, generation_id, generation.finished_at, dictionary.revision, window
     )
+    staged = _newer_staged_scan(repository, generation_id, generation.started_at)
+    if staged is not None:
+        finished = staged.finished_at.isoformat() if staged.finished_at else "unknown"
+        result.notes.append(
+            f"A newer scan ({str(staged.id)[:8]}, finished {finished}) is staged and is not "
+            "included until you activate it."
+        )
     if kind == "labs":
         facts, label_field, build_row = (
             repository.reader.lab_results(generation_id),

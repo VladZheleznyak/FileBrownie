@@ -27,6 +27,9 @@ from filebrownie.storage.checks import MAX_NOTE, VERDICTS
 from filebrownie.storage.database import DatabaseError, open_repository
 from filebrownie.storage.operation import OperationBusyError, OperationLockError, operation_lock
 
+_SUMMARY_SAMPLE_PATHS = 3
+_UNIT_DETAIL_WARNINGS = frozenset({"DOCUMENT_RESOURCE_LIMIT", "VISION_OUTPUT_INVALID"})
+
 
 def configured_paths() -> tuple[Path, Path]:
     source = Path(os.environ.get("FILEBROWNIE_SOURCE_DIR", "/sources"))
@@ -99,6 +102,16 @@ def inventory(save: bool = False) -> int:
         return 130
 
 
+def _sample_paths(paths: Sequence[str], limit: int = _SUMMARY_SAMPLE_PATHS) -> str:
+    shown = [safe(path) for path in paths[:limit]]
+    if not shown:
+        return ""
+    text = "; e.g. " + ", ".join(shown)
+    if len(paths) > limit:
+        text += f" (+{len(paths) - limit} more)"
+    return text
+
+
 def show_generation(repository, generation_id: UUID) -> None:
     inventory = repository.load_inventory(generation_id)
     generation = next(item for item in repository.generations() if item.id == generation_id)
@@ -113,24 +126,40 @@ def show_generation(repository, generation_id: UUID) -> None:
     for record in inventory.records:
         if record.status != DiscoveryStatus.READY:
             print(
-                f"Source inventory: {record.status}; {ascii(record.relative_path)}; "
+                f"Source inventory: {record.status}; {safe(record.relative_path)}; "
                 f"warnings: {', '.join(record.warnings) or '-'}"
             )
-    for item in repository.generation_reads(generation_id):
-        print(
-            f"Reader: {item.status}; evidence: {item.reference or 'unavailable'}; "
-            f"cached: {'yes' if item.cache_hit else 'no'}; "
-            f"page/image count: {item.page_count if item.page_count is not None else 'unknown'}; "
-            f"recorded units: {item.unit_count}"
-        )
-        print(f"  Sources: {', '.join(ascii(name) for name in item.sources)}")
-        print(f"  Warnings: {', '.join(item.warnings) or '-'}")
+    reads = repository.generation_reads(generation_id)
+    if reads:
+        file_status: dict[str, int] = {}
+        cache_hits = 0
+        for item in reads:
+            file_status[item.status] = file_status.get(item.status, 0) + 1
+            if item.cache_hit:
+                cache_hits += 1
+        parts = ", ".join(f"{count} {status}" for status, count in sorted(file_status.items()))
+        print(f"Reader files: {parts}; reader cache hits: {cache_hits}/{len(reads)}")
+        for item in reads:
+            if item.status == "completed":
+                continue
+            paths = list(dict.fromkeys(item.sources))
+            path_text = ", ".join(safe(name) for name in paths[:2])
+            if len(paths) > 2:
+                path_text += f" (+{len(paths) - 2} more)"
+            extra = f"; warnings: {', '.join(item.warnings)}" if item.warnings else ""
+            print(f"  Reader {item.status}: {path_text}{extra}")
 
 
 def show_findings(findings) -> None:
+    grouped: dict[tuple[str, str], list[str]] = {}
     for item in findings:
-        where = ", ".join(ascii(name) for name in item.sources) or "-"
-        print(f"  Guard finding: {item.kind}; {item.detail}; sources: {where}")
+        key = (item.kind, item.detail)
+        grouped.setdefault(key, []).extend(item.sources)
+    for (kind, detail), sources in sorted(grouped.items()):
+        paths = list(dict.fromkeys(sources))
+        count = len(paths)
+        suffix = f" ({count} files)" if count > 1 else ""
+        print(f"  Guard finding: {kind}: {detail}{suffix}{_sample_paths(paths)}")
 
 
 def show_status(repository) -> None:
@@ -208,19 +237,43 @@ def show_interpretation(repository, generation_id: UUID) -> None:
     units = repository.facts.unit_outcomes(generation_id)
     counts = repository.facts.fact_counts(generation_id)
     totals: dict[str, int] = {}
+    warning_totals: dict[str, int] = {}
     for unit in units:
         totals[unit["status"]] = totals.get(unit["status"], 0) + 1
+        for code in unit["warnings"]:
+            warning_totals[code] = warning_totals.get(code, 0) + 1
     print(
         "Processed units: "
         + (", ".join(f"{count} {status}" for status, count in sorted(totals.items())) or "none")
         + f"; facts recorded: {sum(counts.values())}"
     )
-    for unit in units:
-        if unit["status"] != "completed" or unit["warnings"]:
-            print(
-                f"  Unit {unit['unit_number']} ({unit['format']}): {unit['status']}; "
-                f"warnings: {', '.join(unit['warnings']) or '-'}"
+    if warning_totals:
+        listed = ", ".join(
+            f"{code} ({warning_totals[code]})"
+            for code in sorted(warning_totals)
+            if code != "TEXT_LAYER_COVERAGE_UNVERIFIED"
+        )
+        text_layer = warning_totals.get("TEXT_LAYER_COVERAGE_UNVERIFIED")
+        if text_layer:
+            listed = (
+                f"{listed}; TEXT_LAYER_COVERAGE_UNVERIFIED ({text_layer})"
+                if listed
+                else f"TEXT_LAYER_COVERAGE_UNVERIFIED ({text_layer})"
             )
+        if listed:
+            print(f"Unit warnings: {listed}")
+    for unit in units:
+        warnings = unit["warnings"]
+        if unit["status"] == "completed" and not (
+            _UNIT_DETAIL_WARNINGS & set(warnings)
+        ):
+            continue
+        if unit["status"] == "completed" and not warnings:
+            continue
+        print(
+            f"  Unit {unit['unit_number']} ({unit['format']}): {unit['status']}; "
+            f"warnings: {', '.join(warnings) or '-'}"
+        )
 
 
 def _log_failure(component: str, error: object) -> None:

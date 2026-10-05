@@ -77,6 +77,29 @@ def _quality_warning(spans: tuple[TextSpan, ...]) -> str | None:
     return None
 
 
+def _pdf_page_pixels(document, number: int, dpi: int) -> int:
+    page = document.load_page(number - 1)
+    scale = dpi / 72
+    width, height = page.rect.width * scale, page.rect.height * scale
+    if not all(math.isfinite(value) and value > 0 for value in (width, height)):
+        return MAX_PAGE_PIXELS + 1
+    return math.ceil(width) * math.ceil(height)
+
+
+def _dpi_steps_for_budget(
+    document, number: int, pixels_used: int, pages_remaining: int
+) -> tuple[int, ...]:
+    budget = MAX_TOTAL_PIXELS - pixels_used
+    allowed: list[int] = []
+    for dpi in _PDF_DPI_STEPS:
+        page_pixels = _pdf_page_pixels(document, number, dpi)
+        if page_pixels > MAX_PAGE_PIXELS:
+            continue
+        if page_pixels * pages_remaining <= budget:
+            allowed.append(dpi)
+    return tuple(allowed) if allowed else _PDF_DPI_STEPS
+
+
 def _pdf_page(document, number: int, directory: Path, dpi: int = DPI) -> UnitEvidence:
     import pymupdf
 
@@ -148,10 +171,13 @@ def _read_pdf(directory: Path) -> None:
             return
         pixels = 0
         artifact_bytes = 0
-        for number in range(1, min(page_count, MAX_PAGES) + 1):
+        limit = min(page_count, MAX_PAGES)
+        for number in range(1, limit + 1):
+            pages_remaining = limit - number + 1
+            dpi_steps = _dpi_steps_for_budget(document, number, pixels, pages_remaining)
             unit = None
             raster = None
-            for dpi in _PDF_DPI_STEPS:
+            for dpi in dpi_steps:
                 directory.joinpath(f"pages/{number:06d}.png").unlink(missing_ok=True)
                 try:
                     unit = _pdf_page(document, number, directory, dpi=dpi)
@@ -170,13 +196,16 @@ def _read_pdf(directory: Path) -> None:
                 if raster:
                     raster.unlink(missing_ok=True)
             else:
-                unit = UnitEvidence(number, ProcessingStatus.SKIPPED, ("DOCUMENT_RESOURCE_LIMIT",))
-                result = replace(
-                    result,
-                    warnings=(*result.warnings, "DOCUMENT_RESOURCE_LIMIT"),
-                    units=(*result.units, unit),
-                )
-                break
+                if unit is not None and unit.warnings == ("PAGE_PIXEL_LIMIT",):
+                    pass
+                else:
+                    unit = UnitEvidence(number, ProcessingStatus.SKIPPED, ("DOCUMENT_RESOURCE_LIMIT",))
+                    result = replace(
+                        result,
+                        warnings=(*result.warnings, "DOCUMENT_RESOURCE_LIMIT"),
+                        units=(*result.units, unit),
+                    )
+                    break
             pixels += (unit.width or 0) * (unit.height or 0)
             raster = directory / unit.raster if unit.raster else None
             artifact_bytes += raster.stat().st_size if raster and raster.exists() else 0

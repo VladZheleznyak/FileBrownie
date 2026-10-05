@@ -10,6 +10,7 @@ from filebrownie.presentation.render import safe
 _STEPS = {
     "ocr": "OCR",
     "vision": "vision",
+    "vision-supplement": "vision supplement",
     "text": "text layer",
     "ocr-unavailable": "OCR unavailable",
     "vision-unavailable": "vision unavailable",
@@ -104,7 +105,7 @@ def format_scan_progress(event: ScanProgress) -> str:
             total = f"/{event.pages}" if event.pages else ""
             label = _STEPS.get(event.step, event.step)
             cached = " (cached)" if event.cached else ""
-            return _decorate(f"  page {event.unit}{total}: {label}{cached}", event)
+            return f"  page {event.unit}{total}: {label}{cached}"
         case "recorded":
             warnings = _warning_codes(event.warnings)
             extra = f"; warnings: {warnings}" if warnings else ""
@@ -185,9 +186,9 @@ class ScanEta:
                 self.current_unit = event.unit
                 self.page_cached = True
                 self.page_has_work = False
-            if event.step in ("ocr", "vision", "text"):
+            if event.step in ("ocr", "vision", "vision-supplement", "text"):
                 self.page_has_work = True
-                if event.step in ("ocr", "vision") and not event.cached:
+                if event.step in ("ocr", "vision", "vision-supplement") and not event.cached:
                     self.page_cached = False
             self.saw_step = True
             return self._with_eta(event)
