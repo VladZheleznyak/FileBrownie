@@ -11,9 +11,10 @@ validation evidence exist; the evidence is named in the item. Synthetic regressi
 2026-10-04 MVP review (lab association, date roles, event wording, coverage warnings,
 `iron-panel`, multi-span mentions, dictionary raw fallback, cache identity, host-path overlap,
 erasure cleanup retry) extend the suites cited below. Synthetic success does not establish
-medical extraction accuracy. **No real document has been processed**; user-led real-data review
-(D37) is the next step and Phase 2's manual-check evaluation stays open until those checks
-exist. Run application commands and checks through Docker Compose.
+medical extraction accuracy. **User-led real-data review (D37) is in progress** on private
+documents mounted through Compose; nothing from that corpus is committed. Phase 2's
+manual-check evaluation stays open until recorded checks exist. Run application commands
+and checks through Docker Compose.
 
 ## Phase 1: runtime and privacy
 
@@ -103,10 +104,15 @@ exist. Run application commands and checks through Docker Compose.
   (D18–D21, D29, D34).
   Evidence: `tests/test_history.py`, `tests/test_latency.py` (`iron-panel` group id and dates).
 - [x] Sweep located text, tolerating case and inflection, for unmatched mentions
-  even when the same page/image contains a matching fact (D43). Assemble relevant coverage warnings, including table
-  discrepancies of unknown analyte relevance. Show scan timestamp, dictionary
-  revision, evidence references, and careful empty-result wording (D18, D28).
-  Evidence: `tests/test_history.py` (partial-file coverage, multi-span mention sweep).
+  even when the same page/image contains a matching fact (D43). Match phrases across
+  consecutive located rows when OCR splits terms. Assemble relevant coverage warnings,
+  including table discrepancies of unknown analyte relevance. Show scan timestamp,
+  dictionary revision, evidence references, and careful empty-result wording (D18, D28).
+  Evidence: `tests/test_history.py` (partial-file coverage, multi-span and multi-row mention sweep).
+- [x] Infer a conservative laboratory timeline from source filenames when document
+  dates are absent and every path for the same content agrees (D45). Label inferred
+  dates in query output; never treat them as verified evidence.
+  Evidence: `tests/test_filename_dates.py`.
 - [x] Provide English terminal tables, evidence inspection, scan/status output,
   dictionary review, and local manual-check recording, including missed items
   without extracted facts. Choose exact CLI syntax during implementation

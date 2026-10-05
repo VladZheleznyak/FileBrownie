@@ -53,10 +53,9 @@ def test_matching_number_in_another_row_is_not_enough_and_conflicts():
     assert fact.evidence and fact.alternative_evidence
 
 
-def test_value_absent_from_text_is_unverified():
+def test_value_absent_from_text_is_not_stored():
     page = page_of(lab_rows=[lab("Hemoglobin", "99.9", unit="g/dL")])
-    (fact,) = interpret_page(table(), page).lab_facts
-    assert fact.verification == "unverified reading"
+    assert interpret_page(table(), page).lab_facts == ()
 
 
 def test_lab_timeline_uses_supported_report_when_specimen_role_is_unsupported():
@@ -522,7 +521,7 @@ def test_spans_without_boxes_ground_only_inside_a_single_span():
     apart = [TextSpan("Hemoglobin", None), TextSpan("13.5", None)]
     page = page_of(lab_rows=[lab("Hemoglobin", "13.5", unit="g/dL")])
     assert interpret_page(together, page).lab_facts[0].verification == "verified"
-    assert interpret_page(apart, page).lab_facts[0].verification == "unverified reading"
+    assert interpret_page(apart, page).lab_facts == ()
 
 
 def test_same_value_in_two_rows_verifies_against_the_correct_row():

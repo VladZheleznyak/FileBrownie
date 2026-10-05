@@ -308,8 +308,9 @@ committing private inputs or results (D6, D37).
 - Add a standalone inventory command; MVP reports source/unit counts as part of
   scanning and status. Add a reusable synthetic-fixture generator; MVP retains
   small synthetic fixtures and essential failure/semantic checks.
-- Add filename-date fallback and modification-time hints, with explicit inferred
-  date labels. MVP leaves rows without document dates undated.
+- Add modification-time hints, with explicit inferred date labels. Filename-date
+  fallback for laboratory rows is implemented (D45); rows without any inferred or
+  document date stay undated.
 - Add `possible duplicate` heuristics for nonidentical content. MVP retains
   content-hash identity and all source locations, without semantic deduplication.
 - Discover document categories and useful fields dynamically; this is the leading

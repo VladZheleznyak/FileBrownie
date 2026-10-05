@@ -127,8 +127,10 @@ docker compose run --rm app filebrownie evidence fact <ref-from-table>
 `labs` answers laboratory history by analyte or analyte group. `visits` answers
 visit history by specialty or specialty group. Each row shows a verification
 state and an evidence reference. `verified` means the label, value, and any
-unit were found together in located text. Open that reference with
-`evidence fact` and compare important results with the source document.
+unit were found together in located text. Rows marked `inferred from filename`
+use a conservative date read from the source path when the document body has no
+usable timeline; that date is not verified document evidence. Open a reference
+with `evidence fact` and compare important results with the source document.
 
 ### Check system status
 

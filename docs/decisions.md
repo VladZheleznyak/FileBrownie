@@ -458,11 +458,11 @@ future domains. Phase 2 hardens these same capabilities.
 
 Defer optional output formats, evidence crops, dedicated decision backup/export
 and seed-promotion tools, a standalone inventory command, a reusable fixture
-generator, filename-date fallback, modification-time hints, and nonidentical
-duplicate heuristics to vNext. Scans/status still expose counts, rows without
-document dates remain undated, and small synthetic correctness/failure fixtures
-remain required. Input scope was subsequently narrowed to PDF and JPG/JPEG
-in D31.
+generator, modification-time hints, and nonidentical duplicate heuristics to
+vNext. Filename-date fallback for laboratory timelines is in scope (D45).
+Scans/status still expose counts; rows without document or agreed filename dates
+remain undated, and small synthetic correctness/failure fixtures remain required.
+Input scope was subsequently narrowed to PDF and JPG/JPEG in D31.
 
 Basic row-association verification, unresolved candidates, and warnings about
 detected extraction discrepancies remain required. Advanced reconstruction,

@@ -255,7 +255,8 @@ Locations must establish that these fields belong together, using row/region
 relationships and applicable headers. Finding a matching number elsewhere in
 the unit is insufficient. Missing fields remain explicitly missing; reported
 fields that cannot be grounded keep the reading unverified or conflicting.
-Rows without document dates stay undated. Filename-date fallback is vNext (D30).
+Rows without document dates stay undated unless D45 supplies a single agreed
+filename-inferred laboratory timeline (labeled in query output, never verified).
 
 Continuation pages whose dates, units, or headers require unavailable cross-page
 context may yield undated/unverified candidates with a `missing context` warning.
