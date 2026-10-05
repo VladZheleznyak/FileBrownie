@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from collections.abc import Sequence
@@ -28,6 +29,7 @@ from filebrownie.storage.operation import OperationBusyError, OperationLockError
 
 _SUMMARY_SAMPLE_PATHS = 3
 _UNIT_DETAIL_WARNINGS = frozenset({"DOCUMENT_RESOURCE_LIMIT", "VISION_OUTPUT_INVALID"})
+_COVERAGE_WARNING_PART = re.compile(r"^(.+?) \((unit \d+|file)\)$")
 
 
 def configured_paths() -> tuple[Path, Path]:
@@ -111,7 +113,9 @@ def _sample_paths(paths: Sequence[str], limit: int = _SUMMARY_SAMPLE_PATHS) -> s
     return text
 
 
-def show_generation(repository, generation_id: UUID) -> None:
+def show_generation(
+    repository, generation_id: UUID, step_cache_stats: dict[str, int] | None = None
+) -> None:
     inventory = repository.load_inventory(generation_id)
     generation = next(item for item in repository.generations() if item.id == generation_id)
     print(f"Generation: {generation.id}; kind: {generation.kind}; state: {generation.state}")
@@ -137,7 +141,19 @@ def show_generation(repository, generation_id: UUID) -> None:
             if item.cache_hit:
                 cache_hits += 1
         parts = ", ".join(f"{count} {status}" for status, count in sorted(file_status.items()))
-        print(f"Reader files: {parts}; reader cache hits: {cache_hits}/{len(reads)}")
+        line = f"Reader files: {parts}; reader cache hits: {cache_hits}/{len(reads)}"
+        if step_cache_stats:
+            ocr_pages = step_cache_stats.get("ocr_pages", 0)
+            vision_pages = step_cache_stats.get("vision_pages", 0)
+            if ocr_pages:
+                line += (
+                    f"; OCR cache hits: {step_cache_stats.get('ocr_hits', 0)}/{ocr_pages}"
+                )
+            if vision_pages:
+                line += (
+                    f"; vision cache hits: {step_cache_stats.get('vision_hits', 0)}/{vision_pages}"
+                )
+        print(line)
         for item in reads:
             if item.status == "completed":
                 continue
@@ -149,6 +165,20 @@ def show_generation(repository, generation_id: UUID) -> None:
             print(f"  Reader {item.status}: {path_text}{extra}")
 
 
+def _summarize_coverage_detail(detail: str) -> str:
+    """Collapse per-unit warning tokens into code counts for terminal output."""
+    code_counts: dict[str, int] = {}
+    other: list[str] = []
+    for part in detail.split(", "):
+        if match := _COVERAGE_WARNING_PART.match(part):
+            code_counts[match[1]] = code_counts.get(match[1], 0) + 1
+        else:
+            other.append(part)
+    summary = [f"{code} ({count})" for code, count in sorted(code_counts.items())]
+    summary.extend(sorted(dict.fromkeys(other)))
+    return ", ".join(summary)
+
+
 def show_findings(findings) -> None:
     grouped: dict[tuple[str, str], list[str]] = {}
     for item in findings:
@@ -158,7 +188,8 @@ def show_findings(findings) -> None:
         paths = list(dict.fromkeys(sources))
         count = len(paths)
         suffix = f" ({count} files)" if count > 1 else ""
-        print(f"  Guard finding: {kind}: {detail}{suffix}{_sample_paths(paths)}")
+        shown = _summarize_coverage_detail(detail) if kind == "new coverage warning" else detail
+        print(f"  Guard finding: {kind}: {shown}{suffix}{_sample_paths(paths)}")
 
 
 def show_status(repository) -> None:
@@ -318,10 +349,16 @@ def full_scan() -> int:
         with operation_lock(data), open_repository() as repository:
             operation, started = uuid4(), time.monotonic()
             logs.log_event(data, "scan", "scan_started", operation=str(operation))
+            step_cache_stats: dict[str, int] = {}
             outcome = run_full_scan(
-                repository, source, data, ocr, vision, progress=scanning_progress(full_scan=True)
+                repository,
+                source,
+                data,
+                ocr,
+                vision,
+                progress=scanning_progress(full_scan=True, step_cache_stats=step_cache_stats),
             )
-            show_generation(repository, outcome.generation_id)
+            show_generation(repository, outcome.generation_id, step_cache_stats)
             show_interpretation(repository, outcome.generation_id)
             _log_scan(repository, data, operation, outcome, time.monotonic() - started)
             if outcome.activation is None:

@@ -193,13 +193,14 @@ def test_hemoglobin_history_across_languages_with_sections(collection):
     for term in ("hemoglobin", "ГЕМОГЛОБИН", "гемоглобін", "hgb"):
         result = run_query(repository, "labs", term, parse_range(None, None))
         assert rows_of(result) == ["128", "13.5", "14.2"]
-        assert sorted(row.fields["value"] for row in result.undated) == ["11.0", "12.9"]
-        assert {c.row.fields["value"] for c in result.candidates} == {"15.5"}
+        assert sorted(row.fields["value"] for row in result.undated) == ["11.0"]
+        assert {c.row.fields["value"] for c in result.candidates} == {"12.9", "15.5"}
     result = run_query(repository, "labs", "hemoglobin", parse_range(None, None))
     candidates = {c.row.fields["value"]: c.reasons for c in result.candidates}
     assert any("unresolved reading" in reason for reason in candidates["15.5"])
-    undated_129 = next(row for row in result.undated if row.fields["value"] == "12.9")
-    assert "DATE_ROLE_UNSUPPORTED" in undated_129.notes
+    candidate_129 = next(c for c in result.candidates if c.row.fields["value"] == "12.9")
+    assert "date role not confirmed" in candidate_129.reasons
+    assert "DATE_ROLE_UNSUPPORTED" in candidate_129.row.notes
     ordered = [row.date_text for row in result.rows]
     assert ordered == sorted(ordered, key=lambda text: text.split(" ")[0])
     assert any(
@@ -212,14 +213,14 @@ def test_date_filter_excludes_undated_but_counts_them(collection):
     repository, *_ = collection
     result = run_query(repository, "labs", "hemoglobin", parse_range("2024-01-01", "2024-12-31"))
     assert rows_of(result) == ["13.5", "14.2"]
-    assert result.undated == [] and result.excluded_undated == 2
+    assert result.undated == [] and result.excluded_undated == 1
     # 05.2024 lies fully inside the window; narrowing to mid-May makes it a "may fall" row.
     narrow = run_query(repository, "labs", "hemoglobin", parse_range("2024-05-15", "2024-05-31"))
     assert [row.fields["value"] for row in narrow.rows] == ["14.2"]
     assert "may fall within range" in narrow.rows[0].markers
     april = run_query(repository, "labs", "hemoglobin", parse_range("2024-04-01", "2024-04-30"))
     assert rows_of(april) == []
-    assert april.excluded_undated == 2
+    assert april.excluded_undated == 1
 
 
 def test_unmatched_mention_is_reported_even_next_to_facts(collection):
@@ -260,7 +261,7 @@ def test_cli_labs_output_and_evidence_fact(collection, monkeypatch, capsys):
     output = capsys.readouterr().out
     assert "Laboratory history" in output and "Scan completed:" in output
     assert "dictionary revision" in output.lower()
-    assert "no usable date: 2" in output
+    assert "no usable date: 1" in output
     assert "Possible unmatched mentions" in output
     assert "does not prove" in output
     line = next(item for item in output.splitlines() if "13.5" in item and "a.pdf" in item)
@@ -322,6 +323,13 @@ def test_visits_flat_timeline_with_distinct_event_types(repository, folders):
     assert "evidence: direct" in row.markers
     filtered = run_query(repository, "visits", "urologist", parse_range("2024-04-10", None))
     assert [row.fields["event"] for row in filtered.rows] == ["encounter"]
+
+
+def test_query_coverage_warnings_prioritize_matched_sources(collection):
+    repository, *_ = collection
+    result = run_query(repository, "labs", "hemoglobin", parse_range(None, None))
+    assert any("a.pdf" in line for line in result.warnings)
+    assert not any(line.startswith("Not processed: b.pdf") for line in result.warnings)
 
 
 def test_coverage_warnings_keep_partial_files_when_units_exist():

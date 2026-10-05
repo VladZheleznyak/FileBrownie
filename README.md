@@ -507,3 +507,7 @@ docker compose -f compose.yaml -f compose.test.yaml --profile test rm -f db-test
 The test service has no medical-data mounts. Integration tests create isolated
 schemas, use synthetic filenames/content, and never connect to the normal
 `db` service. Its data disappears when the test container is stopped.
+
+If routine `docker compose run --rm app ...` commands warn about an orphan
+`db-test` container, stop and remove the test database service with the commands
+above, or add `--remove-orphans` to the run command.

@@ -187,6 +187,16 @@ def test_activation_cli_status_and_force(repository, folders, monkeypatch, capsy
     assert "forced past the coverage guard" in capsys.readouterr().out
 
 
+def test_guard_summarizes_coverage_warning_detail():
+    detail = (
+        "MISSING_CONTEXT (unit 1), TEXT_LAYER_COVERAGE_UNVERIFIED (unit 48), "
+        "TEXT_LAYER_COVERAGE_UNVERIFIED (unit 49)"
+    )
+    assert cli._summarize_coverage_detail(detail) == (
+        "MISSING_CONTEXT (1), TEXT_LAYER_COVERAGE_UNVERIFIED (2)"
+    )
+
+
 def test_guard_flags_worse_status_new_warnings_and_fewer_facts():
     key = ("a" * 64, "pdf")
     before = Outcome("completed", frozenset({"W1"}), 1, ("a.pdf",))

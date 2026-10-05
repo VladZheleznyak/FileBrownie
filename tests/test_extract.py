@@ -525,6 +525,23 @@ def test_timeline_prefers_specimen_then_report_and_preserves_ambiguity():
     assert build_timeline([], ("specimen",)).role is None
 
 
+def test_prose_with_numeric_range_is_not_a_lab_row():
+    prose = row(80, [(10, "Some men (about 1 in 20-50) will develop swelling")])
+    assert not looks_like_lab_row(PageText.build(prose).rows[0])
+
+
+def test_unparseable_located_date_is_not_stored():
+    spans = row(20, [(10, "Specimen collected: 6")]) + row(
+        80, [(10, "Ferritin"), (150, "12"), (230, "ng/mL")]
+    )
+    page = page_of(
+        lab_rows=[lab("Ferritin", "12", unit="ng/mL")],
+        dates=[{"raw": "6", "role": "specimen"}],
+    )
+    (fact,) = interpret_page(spans, page).lab_facts
+    assert not [item for item in fact.dates if item.raw == "6"]
+
+
 def test_undetected_lab_rows_raise_incomplete_extraction_warning():
     spans = table() + row(100, [(10, "Albumin"), (150, "41"), (230, "g/L")])
     page = page_of(lab_rows=[lab("Hemoglobin", "13.5", unit="g/dL")])

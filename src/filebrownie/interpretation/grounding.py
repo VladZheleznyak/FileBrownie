@@ -156,6 +156,17 @@ def _normalize_located_result(token: str) -> str:
     return token
 
 
+def reference_token_in_row(row_text: str, reference: str) -> bool:
+    reference_n = clean(reference)
+    if not reference_n:
+        return False
+    if contains_token(row_text, reference_n):
+        return True
+    row_compact = re.sub(r"\s+", "", clean(row_text))
+    ref_compact = re.sub(r"\s+", "", reference_n)
+    return ref_compact in row_compact
+
+
 def _row_contains_token(row_text: str, needle: str) -> bool:
     if contains_token(row_text, needle):
         return True
@@ -165,16 +176,35 @@ def _row_contains_token(row_text: str, needle: str) -> bool:
     return False
 
 
+def _has_result_number(text: str) -> bool:
+    if _STANDALONE_NUMBER.search(text):
+        return True
+    return re.search(r"(?<![\w.])(?:<=|>=|<|>|≤|≥)?[+\-]?\d+\.(?=\s|$)", text) is not None
+
+
 def looks_like_lab_row(row: Row) -> bool:
     """Heuristic for a laboratory table row: label, a standalone value, and a unit or interval."""
     text = row.text
-    has_interval = _INTERVAL.search(text) is not None
+    if len(text) > 120:
+        return False
+    interval_match = _INTERVAL.search(text)
+    has_interval = interval_match is not None
     stripped = _INTERVAL.sub(" ", text)
     if not re.match(r"^\W*[^\W\d_]{3,}", stripped):
         return False
-    if _STANDALONE_NUMBER.search(stripped) is None:
+    if not _has_result_number(stripped):
         return False
-    return has_interval or _UNIT_LIKE.search(stripped) is not None
+    if _UNIT_LIKE.search(stripped) is not None:
+        return True
+    if not has_interval:
+        return False
+    if re.search(r"\d{3}-\d{3}-\d{4}", text):
+        return False
+    interval = interval_match.group(0)
+    before, _, after = text.partition(interval)
+    if re.search(r"(?:\bin\b|\babout\b|\bper\b)", before, re.IGNORECASE):
+        return False
+    return len(before.strip()) <= 48 and len(after.strip()) <= 48
 
 
 def _text_after_label(row_text: str, label_n: str) -> str | None:
@@ -190,6 +220,8 @@ def _first_result_token(text: str) -> str | None:
     """First standalone value token after the label, ignoring reference intervals."""
     stripped = _INTERVAL.sub(" ", text)
     match = _STANDALONE_NUMBER.search(stripped)
+    if match is None:
+        match = re.search(r"(?<![\w.])(?:<=|>=|<|>|≤|≥)?[+\-]?\d+\.(?=\s|$)", stripped)
     if not match:
         return None
     return _normalize_located_result(clean(match.group(0)))
@@ -286,9 +318,19 @@ def ground_lab_row(
     if not page.spans or not label_n or not value_n:
         return LabGrounding("unverified reading", (), notes=("NOT_LOCATED",))
     label_rows, value_rows = page.rows_with(label_n), page.rows_with(value_n)
-    shared = [row for row in label_rows if row in value_rows]
+    shared = [
+        row
+        for row in label_rows
+        if row in value_rows or value_at_result_position(row, label_n, value_n)
+    ]
     if shared:
         row = shared[0]
+        if not looks_like_lab_row(row) and len(row.text.split()) > 4:
+            return LabGrounding(
+                "unverified reading",
+                tuple(sorted(page.refs(row, label_n))),
+                notes=("ASSOCIATION_NOT_LOCATED",),
+            )
         if not value_at_result_position(row, label_n, value_n):
             return LabGrounding(
                 "unverified reading",
@@ -320,6 +362,12 @@ def ground_lab_row(
                 abs(row.y - anchor.y) if row.y is not None and anchor.y is not None else 1e9
             ),
         )
+        if not looks_like_lab_row(value_row):
+            return LabGrounding(
+                "unverified reading",
+                tuple(sorted(page.refs(anchor, label_n))),
+                notes=("ASSOCIATION_NOT_LOCATED",),
+            )
         alternative, alt_refs = _geometric_label(page, value_row, value_n)
         alt_n = clean(alternative)
         if alt_n and any(character.isalpha() for character in alt_n) and alt_n != label_n:

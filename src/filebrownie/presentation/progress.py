@@ -322,10 +322,23 @@ class ScanEta:
         return f" ({', '.join(parts)})"
 
 
-def scanning_progress(full_scan: bool, clock: Callable[[], float] | None = None) -> ProgressFn:
+def scanning_progress(
+    full_scan: bool,
+    clock: Callable[[], float] | None = None,
+    step_cache_stats: dict[str, int] | None = None,
+) -> ProgressFn:
     eta = ScanEta(full_scan, clock or time.monotonic)
 
     def emit(event: ScanProgress) -> None:
+        if step_cache_stats is not None and event.stage == "step":
+            if event.step == "ocr":
+                step_cache_stats["ocr_pages"] = step_cache_stats.get("ocr_pages", 0) + 1
+                if event.cached:
+                    step_cache_stats["ocr_hits"] = step_cache_stats.get("ocr_hits", 0) + 1
+            elif event.step in ("vision", "vision-supplement"):
+                step_cache_stats["vision_pages"] = step_cache_stats.get("vision_pages", 0) + 1
+                if event.cached:
+                    step_cache_stats["vision_hits"] = step_cache_stats.get("vision_hits", 0) + 1
         print(format_scan_progress(eta.note(event)), flush=True)
 
     return emit

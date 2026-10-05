@@ -13,6 +13,7 @@ from filebrownie.interpretation.grounding import (
     clean,
     ground_lab_row,
     looks_like_lab_row,
+    reference_token_in_row,
     uncovered_lab_rows,
 )
 from filebrownie.interpretation.models import (
@@ -163,6 +164,10 @@ def _column_aligned_date_role(
     if not above or looks_like_lab_row(above[0]):
         return None
     header = above[0]
+    if _header_states_other_date(header.text, date_raw):
+        return None
+    if re.search(r"\b(?:printed|issued|reported|report)\b", row.text, re.IGNORECASE):
+        return None
     date_x = _date_x_center(page, evidence)
     if date_x is None:
         return None
@@ -211,6 +216,8 @@ def _supported_date_role(page: PageText, claim: VisionDate, evidence: tuple[int,
     """Return the role when located text supports it; otherwise `unsupported` or `unspecified`."""
     row = _date_row(page, evidence)
     if row is None:
+        return "unsupported"
+    if _NON_TIMELINE_DATE_CAPTION.search(row.text):
         return "unsupported"
     if claim.role in ("specimen", "report"):
         on_row = _nearest_lab_date_role_before(row.text, claim.raw)
@@ -281,11 +288,14 @@ def _dates(
                 )
             )
             continue
+        parsed = parse_date(claim.raw)
+        if not parsed:
+            continue
         reported.append(
             ReportedDate(
                 claim.raw,
                 display_role,
-                parse_date(claim.raw),
+                parsed,
                 evidence,
                 planned,
                 role_supported=role_supported,
@@ -350,7 +360,7 @@ def _lab_fact(page: PageText, vision: VisionPage, row: VisionLabRow) -> LabFact:
     flag = row.flag
     if reference_interval:
         needle = clean(reference_interval)
-        if result_row is None or not needle or not contains_token(result_row.text, needle):
+        if result_row is None or not needle or not reference_token_in_row(result_row.text, needle):
             notes.append("REFERENCE_NOT_LOCATED")
             reference_interval = None
             if verification == VERIFIED:

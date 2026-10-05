@@ -1,6 +1,6 @@
 """Laboratory and specialty histories over the active generation. Deterministic; no model."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from uuid import UUID
 
@@ -94,10 +94,16 @@ def _date_text(role: str | None, alternatives: tuple[DateValue, ...], planned: b
     return f"{format_alternatives(alternatives)} ({label})"
 
 
-def _other_dates(dates: list[dict], chosen_role: str | None) -> str:
+def _other_dates(
+    dates: list[dict], chosen_role: str | None, exclude_raw: tuple[str, ...] = ()
+) -> str:
     items = []
     for item in dates:
         if item["role"] == chosen_role:
+            continue
+        if item["raw"] in exclude_raw:
+            continue
+        if not item.get("alternatives"):
             continue
         role = item["role"]
         if not item.get("role_supported", True):
@@ -105,6 +111,36 @@ def _other_dates(dates: list[dict], chosen_role: str | None) -> str:
         suffix = " (planned)" if item["planned"] else ""
         items.append(f"{role}{suffix}: {item['raw']}")
     return "; ".join(items)
+
+
+def _path_from_source_label(sources: str) -> str:
+    for marker in (" page ", " image"):
+        if marker in sources:
+            return sources.split(marker, 1)[0]
+    if " (+" in sources:
+        return sources.split(" (+", 1)[0]
+    return sources
+
+
+def _located_unconfirmed_lab_dates(
+    fact: dict,
+) -> tuple[str | None, tuple[DateValue, ...], str | None]:
+    if fact["timeline_role"] is not None and fact["timeline_alternatives"]:
+        return None, (), None
+    if "DATE_ROLE_UNSUPPORTED" not in fact["notes"]:
+        return None, (), None
+    for role in ("specimen", "report", "unspecified"):
+        for item in fact["dates"]:
+            if item["role"] != role:
+                continue
+            if item.get("role_supported", True):
+                continue
+            if not item.get("evidence"):
+                continue
+            alternatives = _alternatives(item.get("alternatives") or [])
+            if alternatives:
+                return role, alternatives, item["raw"]
+    return None, (), None
 
 
 def _reason_for_terminology(status: str) -> str:
@@ -203,22 +239,54 @@ def sweep(
                 seen.add(marker)
                 found.append((paths, fmt, unit_number, text))
     found.sort()
-    return [Mention(source_text(paths, fmt, unit), unit, text) for paths, fmt, unit, text in found]
+    mentions: list[Mention] = []
+    index = 0
+    while index < len(found):
+        paths, fmt, unit_number, first = found[index]
+        texts = [first]
+        index += 1
+        while index < len(found) and found[index][:3] == (paths, fmt, unit_number):
+            texts.append(found[index][3])
+            index += 1
+        if len(texts) == 1:
+            body = texts[0]
+        else:
+            body = f"{len(texts)} unmatched mentions on this page; e.g. {texts[0]}"
+        mentions.append(Mention(source_text(paths, fmt, unit_number), unit_number, body))
+    return mentions
 
 
-def coverage_warnings(repository, generation_id: UUID, include_tables: bool) -> list[str]:
+def coverage_warnings(
+    repository,
+    generation_id: UUID,
+    include_tables: bool,
+    priority_paths: frozenset[str] | None = None,
+) -> list[str]:
     reader = repository.reader
-    lines: list[str] = []
-    for item in reader.unlisted_sources(generation_id):
-        extra = f"; {', '.join(item['warnings'])}" if item["warnings"] else ""
-        lines.append(f"Not processed: {item['relative_path']} ({item['status']}{extra})")
+    tagged: list[tuple[bool, str]] = []
+
+    def tag(line: str, paths: list[str]) -> None:
+        if priority_paths is None:
+            tagged.append((True, line))
+            return
+        tagged.append((any(path in priority_paths for path in paths), line))
+
+    unlisted = list(reader.unlisted_sources(generation_id))
+    if priority_paths is None:
+        for item in unlisted:
+            extra = f"; {', '.join(item['warnings'])}" if item["warnings"] else ""
+            tag(f"Not processed: {item['relative_path']} ({item['status']}{extra})", [])
+    elif unlisted:
+        tag(f"Not processed: {len(unlisted)} unsupported files (see scan inventory).", [])
+
     for item in reader.file_problems(generation_id):
         units = item["unit_count"]
-        lines.append(
+        tag(
             f"File {item['status']}: {source_text(item['sources'], item['format'])} "
             f"(pages known: {item['page_count'] if item['page_count'] is not None else 'unknown'}"
             f"{f'; units recorded: {units}' if units is not None else ''}"
-            f"{'; ' + ', '.join(item['warnings']) if item['warnings'] else ''})"
+            f"{'; ' + ', '.join(item['warnings']) if item['warnings'] else ''})",
+            item["sources"],
         )
     tables = {
         (row["content_hash"], row["format"], row["unit_number"]): row
@@ -226,37 +294,55 @@ def coverage_warnings(repository, generation_id: UUID, include_tables: bool) -> 
     }
     text_layer_files: set[tuple[str, str]] = set()
     for unit in reader.coverage_units(generation_id):
-        where = source_text(unit["sources"], unit["format"], unit["unit_number"])
+        paths = unit["sources"]
+        where = source_text(paths, unit["format"], unit["unit_number"])
         warnings = set(unit["warnings"])
         file_key = (unit["content_hash"], unit["format"])
         if "TEXT_LAYER_COVERAGE_UNVERIFIED" in warnings:
             warnings.discard("TEXT_LAYER_COVERAGE_UNVERIFIED")
             if file_key not in text_layer_files:
                 text_layer_files.add(file_key)
-                lines.append(
+                tag(
                     "Text layer does not establish full page coverage: "
-                    f"{source_text(unit['sources'], unit['format'])}"
+                    f"{source_text(paths, unit['format'])}",
+                    paths,
                 )
         if unit["status"] != "completed":
-            lines.append(
-                f"Partially processed: {where} ({unit['status']}; {', '.join(sorted(warnings))})"
+            tag(
+                f"Partially processed: {where} ({unit['status']}; {', '.join(sorted(warnings))})",
+                paths,
             )
         if "HANDWRITING_NOT_INTERPRETED" in warnings:
-            lines.append(f"Handwriting not interpreted: {where}")
+            tag(f"Handwriting not interpreted: {where}", paths)
         if "VISION_ITEMS_DROPPED" in warnings:
-            lines.append(f"Vision extraction dropped items: {where}")
+            tag(f"Vision extraction dropped items: {where}", paths)
         if include_tables and "MISSING_CONTEXT" in warnings:
-            lines.append(f"Missing context (date/unit/header): {where}")
+            tag(f"Missing context (date/unit/header): {where}", paths)
         key = (unit["content_hash"], unit["format"], unit["unit_number"])
         if include_tables and key in tables:
             spans = reader.spans(generation_id, *key, [int(i) for i in tables[key]["evidence"]])
             snippet = " | ".join(span["text"].strip() for span in spans)[:120]
-            lines.append(
+            tag(
                 f"Possible incomplete table extraction: {where}; row without a structured "
-                f"result near: {snippet}"
+                f"result near: {snippet}",
+                paths,
             )
-    if len(lines) > MAX_LISTED:
-        lines = [*lines[:MAX_LISTED], f"... and {len(lines) - MAX_LISTED} more coverage warnings"]
+
+    priority_lines = [line for is_priority, line in tagged if is_priority]
+    other_lines = [line for is_priority, line in tagged if not is_priority]
+    if priority_paths is None:
+        lines = priority_lines + other_lines
+    else:
+        lines = priority_lines[:MAX_LISTED]
+        if len(lines) < MAX_LISTED:
+            lines.extend(other_lines[: MAX_LISTED - len(lines)])
+    total = len(priority_lines) + len(other_lines)
+    hidden = total - len(lines)
+    if hidden:
+        if priority_paths is None:
+            lines.append(f"... and {hidden} more coverage warnings")
+        else:
+            lines.append(f"... and {hidden} more coverage warnings elsewhere in the collection")
     return lines
 
 
@@ -365,6 +451,7 @@ def run_query(
         alternative_field = None
     covered: set[tuple[str, str, int, int]] = set()
     rows: list[Row] = []
+    priority_paths: set[str] = set()
     for fact in facts:
         match = dictionary.match(fact[label_field], scope)
         if match is None and alternative_field and fact[alternative_field]:
@@ -372,11 +459,15 @@ def run_query(
         if match is None:
             continue
         covered |= _evidence_keys(fact)
+        unconfirmed_role, unconfirmed_alts, unconfirmed_raw = (
+            _located_unconfirmed_lab_dates(fact) if kind == "labs" else (None, (), None)
+        )
         timeline = _alternatives(fact["timeline_alternatives"])
-        placement = classify(timeline, window)
+        display_timeline = unconfirmed_alts if unconfirmed_alts else timeline
+        placement = classify(display_timeline, window)
         if placement == OUT:
             continue
-        if placement == UNDATED and window.active:
+        if placement == UNDATED and window.active and not unconfirmed_alts:
             result.excluded_undated += 1
             continue
         reasons = []
@@ -388,9 +479,26 @@ def run_query(
             reasons.append(f"unresolved reading: readers disagree; alternative: {other}")
         elif fact["verification"] == "unverified reading":
             markers.append("unverified reading")
+        if kind == "labs" and "ASSOCIATION_NOT_LOCATED" in fact["notes"]:
+            reasons.append("reading not located in source")
+        if unconfirmed_alts:
+            reasons.append("date role not confirmed")
         if placement == UNCERTAIN:
-            reasons.append(f"date uncertain: {format_alternatives(timeline)}")
+            reasons.append(f"date uncertain: {format_alternatives(display_timeline)}")
         row = build_row(fact, placement, match, markers)
+        if unconfirmed_alts and unconfirmed_role is not None and unconfirmed_raw is not None:
+            row = replace(
+                row,
+                date_text=_date_text(unconfirmed_role, unconfirmed_alts, False),
+                sort_key=(unconfirmed_alts[0].start, str(fact["id"])),
+                other_dates=_other_dates(
+                    fact["dates"], fact["timeline_role"], (unconfirmed_raw,)
+                ),
+            )
+        row_source = _path_from_source_label(row.sources)
+        priority_paths.add(row_source)
+        for mention_path in fact["sources"]:
+            priority_paths.add(mention_path)
         if reasons:
             result.candidates.append(Candidate(row, tuple(reasons)))
         else:
@@ -406,7 +514,14 @@ def run_query(
         )
     )
     result.mentions = sweep(repository, generation_id, scope, covered)
-    result.warnings = coverage_warnings(repository, generation_id, include_tables=kind == "labs")
+    for mention in result.mentions:
+        priority_paths.add(_path_from_source_label(mention.sources))
+    result.warnings = coverage_warnings(
+        repository,
+        generation_id,
+        include_tables=kind == "labs",
+        priority_paths=frozenset(priority_paths),
+    )
     if kind == "labs":
         units: dict[str, int] = {}
         for row in [*result.rows, *result.undated, *(c.row for c in result.candidates)]:
