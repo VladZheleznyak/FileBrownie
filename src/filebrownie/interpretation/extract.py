@@ -612,10 +612,15 @@ def interpret_page(
     source_paths: Sequence[str] = (),
 ) -> UnitInterpretation:
     page = PageText.build(spans)
-    lab_facts = tuple(
-        _apply_filename_timeline(_lab_fact(page, vision, row), source_paths)
-        for row in vision.lab_rows
-    )
+    lab_facts = []
+    for row in vision.lab_rows:
+        fact = _apply_filename_timeline(_lab_fact(page, vision, row), source_paths)
+        if not fact.evidence and "NOT_LOCATED" in fact.notes:
+            continue
+        if "ASSOCIATION_NOT_LOCATED" in fact.notes and not fact.alternative_evidence:
+            continue
+        lab_facts.append(fact)
+    lab_facts = tuple(lab_facts)
     # Events without source wording, or mention-only wording, stay out of visit rows (D36).
     events = tuple(
         fact
