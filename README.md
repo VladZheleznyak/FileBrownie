@@ -14,7 +14,8 @@ and passes its synthetic checks: bounded PDF/JPEG readers, Tesseract OCR, a loca
 vision model, grounded fact verification, generation activation, dictionary-aware
 `labs` and `visits` histories, manual checks, and erasure. It has **not** been
 evaluated on real documents, and nothing here establishes extraction accuracy or
-completeness; check results against the source documents (D37). See
+completeness; check results against the source documents (D37). Start with
+[Getting started](#getting-started). Implementation detail is in
 [Phase 1 workflow](#phase-1-workflow).
 
 Keep the MVP simple: terminal histories, source references, visible uncertainty,
@@ -31,11 +32,137 @@ Phase 1 implementation delivery.
 - [Architecture](docs/architecture.md): intended components, data model, and flows
 - [Implementation checklist](docs/implementation-checklist.md): delivery and validation tasks for both phases
 
+## Getting started
+
+After cloning, point FileBrownie at one folder of PDF and JPEG documents,
+provision the local models, scan that folder, then ask laboratory or visit
+questions. `doctor` and `status` report whether the system is ready and which
+index is active. Every command below runs through Docker Compose.
+
+### Set up after cloning
+
+You need Docker with Compose (Docker Desktop with WSL integration is the usual
+setup) and an NVIDIA GPU for the local vision model.
+
+1. Copy `.env.example` to `.env` and set two absolute directories outside this
+   repository. `FILEBROWNIE_SOURCE_DIR` is the folder you dedicate to documents.
+   `FILEBROWNIE_DATA_DIR` holds the database, evidence, and logs. The two
+   directories must be separate, and neither may sit inside the other. Create
+   both directories, and a `postgres` subdirectory inside the generated-data
+   directory, before the first Compose command. A missing bind directory is an
+   error.
+
+   ```sh
+   cp .env.example .env
+   ```
+
+   Edit `.env`:
+
+   ```sh
+   FILEBROWNIE_SOURCE_DIR=/absolute/path/to/documents
+   FILEBROWNIE_DATA_DIR=/absolute/path/to/filebrownie-data
+   FILEBROWNIE_UID=1000
+   FILEBROWNIE_GID=1000
+   ```
+
+   Set `FILEBROWNIE_UID` and `FILEBROWNIE_GID` to the numeric user and group
+   that own those directories (`id -u` and `id -g` in WSL). That user needs
+   read access to the source folder and write access to the generated-data
+   folder. Keep real records out of this checkout.
+
+2. Put PDF, JPG, and JPEG files in the source folder. Other formats are listed
+   during a scan and left unread.
+
+3. Build the app, start the database, download the pinned model files once,
+   start local inference, and initialize the schema:
+
+   ```sh
+   docker compose build app
+   docker compose up -d --wait db
+   docker compose --profile setup run --rm model-setup
+   docker compose run --rm app filebrownie model-setup --verify
+   docker compose --profile inference up -d model
+   docker compose run --rm app filebrownie migrate
+   ```
+
+   `model-setup` is the command that uses the network. It downloads Tesseract
+   language data (English, Russian, Ukrainian) and the vision weights (about
+   5.5 GB) into Docker model storage, outside the repository and away from your
+   documents. Later processing stays on the internal network. If the weights
+   are missing or altered, processing stops with a setup error; run the
+   `model-setup` commands above again.
+
+### Scan the source folder
+
+```sh
+docker compose run --rm app filebrownie scan
+```
+
+`scan` reads every supported file in `FILEBROWNIE_SOURCE_DIR`: text extraction,
+OCR, the local vision model, and grounded verification. Source files stay
+read-only. The first successful scan becomes the active index. A later scan
+stays staged when the coverage guard finds new failures, warnings, or fewer
+facts; the previous index remains the one queries use. Review the printed
+findings, then accept that generation with:
+
+```sh
+docker compose run --rm app filebrownie activate <generation-uuid> --force
+```
+
+One CLI operation runs at a time. A question started during a scan exits with
+`OPERATION_BUSY`.
+
+### Ask a question
+
+Questions use the active index. A term may be English, Russian, or Ukrainian.
+`--from` and `--to` accept `YYYY`, `YYYY-MM`, or `YYYY-MM-DD`.
+
+```sh
+docker compose run --rm app filebrownie labs ferritin
+docker compose run --rm app filebrownie labs iron-panel --from 2023 --to 2024-06
+docker compose run --rm app filebrownie visits ophthalmology
+docker compose run --rm app filebrownie evidence fact <ref-from-table>
+```
+
+`labs` answers laboratory history by analyte or analyte group. `visits` answers
+visit history by specialty or specialty group. Each row shows a verification
+state and an evidence reference. `verified` means the label, value, and any
+unit were found together in located text. Open that reference with
+`evidence fact` and compare important results with the source document.
+
+### Check system status
+
+```sh
+docker compose run --rm app filebrownie doctor
+docker compose run --rm app filebrownie status
+docker compose run --rm app filebrownie status --database
+```
+
+`doctor` is the readiness check. It reports separate source and generated-data
+folders, no route to the internet, read-only source and model mounts, and a
+ready database schema, OCR data, vision weights, and inference service.
+Each line is `ok` or `FAIL`. Exit code `0` means every check passed; `1` means
+at least one failed. Run it after setup and whenever a scan or question fails
+with a setup error.
+
+`status` reports that scan and query commands are available in this build.
+`status --database` opens the database and prints the active generation, or
+that none is active, plus every saved generation's kind, state, start time,
+source count, and reason. Start the database first when it is stopped:
+
+```sh
+docker compose up -d --wait db
+```
+
 ## Repository safety
 
 Keep real documents, extracted data, credentials, and other personal information out of Git. Use synthetic examples in committed files.
 
 ## Scaffold setup
+
+Day-to-day setup, scanning, questions, and status are in
+[Getting started](#getting-started). This section records directory rules,
+inventory behavior, and exit codes.
 
 Docker Desktop with WSL integration and Docker Compose are required. Copy
 `.env.example` to `.env`, then set absolute source and generated-data directory
