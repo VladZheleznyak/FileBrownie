@@ -59,6 +59,26 @@ def test_value_absent_from_text_is_unverified():
     assert fact.verification == "unverified reading"
 
 
+def test_lab_timeline_uses_supported_report_when_specimen_role_is_unsupported():
+    spans = row(20, [(10, "Report issued: 05/09/2023")]) + row(
+        80, [(10, "Ferritin"), (150, "186"), (230, "ug/L")]
+    )
+    page = page_of(
+        lab_rows=[
+            lab(
+                "Ferritin",
+                "186",
+                unit="ug/L",
+                dates=[{"raw": "05/04/2023", "role": "specimen"}],
+            )
+        ],
+        dates=[{"raw": "05/09/2023", "role": "report"}],
+    )
+    (fact,) = interpret_page(spans, page).lab_facts
+    assert fact.timeline.role == "report"
+    assert fact.timeline.alternatives[0].start == date(2023, 9, 5)
+
+
 def test_unlocated_lab_row_without_evidence_is_not_stored():
     spans = row(40, [(10, "Ferritin")]) + row(200, [(10, "99"), (100, "ng/mL")])
     page = page_of(lab_rows=[lab("Ferritin", "99", unit="ng/mL")])

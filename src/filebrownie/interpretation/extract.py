@@ -322,6 +322,22 @@ def build_timeline(dates: Sequence[ReportedDate], preference: Sequence[str]) -> 
     return Timeline(None, ())
 
 
+def _lab_timeline(dates: Sequence[ReportedDate]) -> Timeline:
+    """Laboratory ordering: preference roles first, then a single remaining supported date."""
+    timeline = build_timeline(dates, LAB_DATE_PREFERENCE)
+    if timeline.alternatives:
+        return timeline
+    supported = [
+        item
+        for item in dates
+        if item.grounded and item.role_supported and item.alternatives
+    ]
+    if len(supported) == 1:
+        item = supported[0]
+        return Timeline(item.role, item.alternatives)
+    return timeline
+
+
 def _lab_dates(row: VisionLabRow, page_dates: Sequence[VisionDate]) -> list[VisionDate]:
     own_roles = {claim.role for claim in row.dates}
     return [*row.dates, *(claim for claim in page_dates if claim.role not in own_roles)]
@@ -389,7 +405,7 @@ def _lab_fact(page: PageText, vision: VisionPage, row: VisionLabRow) -> LabFact:
     if verification == VERIFIED and vision.context_missing:
         verification = UNVERIFIED
         notes.append("MISSING_CONTEXT")
-    timeline = build_timeline(dates, LAB_DATE_PREFERENCE)
+    timeline = _lab_timeline(dates)
     if timeline.role is not None and not timeline.alternatives:
         notes.append("DATE_UNPARSEABLE")
     result_row = _shared_result_row(page, row.label, row.value)
