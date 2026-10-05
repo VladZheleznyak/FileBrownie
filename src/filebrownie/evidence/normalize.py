@@ -12,6 +12,8 @@ _APOSTROPHES = dict.fromkeys(map(ord, "\u2019\u2018\u02bc\u02b9\u0060\u00b4\u203
 _TOKEN = re.compile(r"[^\W\d_]+(?:'[^\W\d_]+)*|\S", re.UNICODE)
 _DECIMAL_COMMA = re.compile(r"(?<=\d),(?=\d)")
 _SPACES = re.compile(r"\s+")
+# Minus signs that are not compatibility-equivalent to ASCII hyphen-minus.
+_SIGN_FOLDS = str.maketrans({"\u2212": "-", "\ufe63": "-"})
 
 
 def _is_cyrillic(character: str) -> bool:
@@ -30,6 +32,11 @@ def _unify_token(token: str) -> str:
     if cyrillic >= latin:
         return token.translate(_LATIN_TO_CYRILLIC)
     return token.translate(_CYRILLIC_TO_LATIN)
+
+
+def fold_signs(text: str) -> str:
+    """Map Unicode minus signs to ASCII hyphen-minus. Plus and hyphen stay distinct."""
+    return text.translate(_SIGN_FOLDS)
 
 
 def normalize(text: str) -> str:

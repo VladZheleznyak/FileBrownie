@@ -10,9 +10,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from filebrownie.evidence.models import TextSpan
-from filebrownie.evidence.normalize import contains_token, normalize
+from filebrownie.evidence.normalize import contains_token, fold_signs, normalize
 
-_COMPARATOR_GAP = re.compile(r"([<>≤≥]=?)\s+(?=\d)")
+_COMPARATOR_GAP = re.compile(r"([<>≤≥]=?)\s+(?=[+\-]?\d)")
 _EDGE = " :;,.|"
 
 
@@ -20,7 +20,8 @@ def clean(text: str | None) -> str:
     """Normalize a claimed string for matching; empty when nothing matchable remains."""
     if not text:
         return ""
-    return _COMPARATOR_GAP.sub(r"\1", normalize(text)).strip(_EDGE)
+    folded = fold_signs(normalize(text))
+    return _COMPARATOR_GAP.sub(r"\1", folded).strip(_EDGE)
 
 
 @dataclass(frozen=True)
@@ -60,7 +61,7 @@ class PageText:
         for group in groups:
             ordered = sorted(group, key=lambda member: member[3])
             indices = tuple(member[0] for member in ordered)
-            joined = _COMPARATOR_GAP.sub(r"\1", normalize(" ".join(spans[i].text for i in indices)))
+            joined = clean(" ".join(spans[i].text for i in indices))
             rows.append(
                 Row(
                     indices, joined, sum(m[1] for m in group) / len(group), max(m[2] for m in group)
@@ -116,7 +117,9 @@ class LabGrounding:
 
 _UNIT_LIKE = re.compile(r"(?:[a-zа-яіїєґµμ%]+[a-zа-яіїєґ0-9^*]*/[a-zа-яіїєґ0-9^*.]+)|%")
 _INTERVAL = re.compile(r"\d+(?:\.\d+)?\s*[-–—]\s*\d+(?:\.\d+)?")
-_STANDALONE_NUMBER = re.compile(r"(?<![\w.])(?:[<>≤≥]?-?\d+(?:\.\d+)?)(?![\w.])")
+# Two-character comparators and an explicit sign are part of the result token.
+# A following digit must not match on its own inside <=5, +2, or −5.
+_STANDALONE_NUMBER = re.compile(r"(?<![\w.])(?:<=|>=|<|>|≤|≥)?[+\-]?\d+(?:\.\d+)?(?![\w.])")
 
 
 def looks_like_lab_row(row: Row) -> bool:
@@ -195,9 +198,16 @@ def _header_rows_above(page: PageText, row: Row) -> list[Row]:
     return [other for other in page.above(row) if not looks_like_lab_row(other)]
 
 
-def _inherit_field(page: PageText, row: Row, needle: str) -> tuple[Row, str] | None:
+def _inherit_field(
+    page: PageText, row: Row, needle: str, *, from_header: bool
+) -> tuple[Row, str] | None:
     if contains_token(row.text, needle):
         return (row, needle)
+    # A unit already written on the result row is the result unit. A different unit in a
+    # header must not replace it. Specimen text is still taken from a header when the row
+    # does not state one.
+    if not from_header:
+        return None
     headers = _header_rows_above(page, row)
     return next(
         ((header, needle) for header in headers if contains_token(header.text, needle)),
@@ -248,7 +258,8 @@ def ground_lab_row(
             needle = clean(claimed)
             if not needle:
                 continue
-            hit = _inherit_field(page, row, needle)
+            row_has_unit = name == "UNIT" and _UNIT_LIKE.search(row.text) is not None
+            hit = _inherit_field(page, row, needle, from_header=not row_has_unit)
             if hit is None:
                 notes.append(f"{name}_NOT_LOCATED")
             else:

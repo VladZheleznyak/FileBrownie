@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from decimal import Decimal, InvalidOperation
 
 from filebrownie.evidence.models import TextSpan
-from filebrownie.evidence.normalize import contains_token, normalize
+from filebrownie.evidence.normalize import contains_token, fold_signs, normalize
 from filebrownie.interpretation.dates import DateValue, parse_date
 from filebrownie.interpretation.grounding import (
     PageText,
@@ -30,15 +30,17 @@ from filebrownie.interpretation.vision import VisionDate, VisionEvent, VisionLab
 
 LAB_DATE_PREFERENCE = ("specimen", "report", "unspecified")
 EVENT_DATE_PREFERENCE = ("event",)
-_VALUE = re.compile(r"^(?P<cmp><=|>=|<|>|≤|≥)?\s*(?P<num>\d+(?:[.,]\d+)?)$")
+_VALUE = re.compile(r"^(?P<cmp><=|>=|<|>|≤|≥)?(?P<sign>[+-])?(?P<num>\d+(?:[.,]\d+)?)$")
 
 
 def parse_value(raw: str) -> tuple[str | None, str | None, bool]:
     """Return (comparator, parsed number, qualitative). The raw string is always kept."""
-    text = raw.strip().replace(" ", "")
+    text = fold_signs(raw.strip().replace(" ", ""))
     match = _VALUE.match(text)
     if match:
         number = match["num"].replace(",", ".")
+        if match["sign"]:
+            number = f"{match['sign']}{number}"
         try:
             Decimal(number)
         except InvalidOperation:  # pragma: no cover - guarded by the regex
@@ -65,6 +67,9 @@ _NON_TIMELINE_DATE_CAPTION = re.compile(
     r"дата\s+народж)\b",
     re.IGNORECASE,
 )
+# A numeric date already written on a caption line. Hyphenated ranges such as 10-20 are not dates.
+_STATED_DATE = re.compile(r"\d{1,2}[./]\d{1,2}[./]\d{2,4}|\d{4}-\d{2}-\d{2}")
+_LETTER = re.compile(r"[^\W\d_]", re.UNICODE)
 
 
 def _date_row(page: PageText, evidence: tuple[int, ...]) -> Row | None:
@@ -91,20 +96,40 @@ def _date_context_text(page: PageText, evidence: tuple[int, ...]) -> str:
     return " ".join(segments)
 
 
-def _date_role_context_text(page: PageText, evidence: tuple[int, ...]) -> str:
-    """Caption text used for lab date roles; do not inherit roles across incompatible captions."""
+def _row_has_other_caption(row_text: str, date_raw: str) -> bool:
+    """True when the date line has words of its own, such as ``Printed:``."""
+    date_n = clean(date_raw)
+    remaining = row_text.replace(date_n, " ", 1) if date_n else row_text
+    return _LETTER.search(remaining) is not None
+
+
+def _header_states_other_date(header_text: str, date_raw: str) -> bool:
+    """True when the header already states a different date, so its role belongs to that date."""
+    date_n = clean(date_raw)
+    return any(clean(match.group(0)) != date_n for match in _STATED_DATE.finditer(header_text))
+
+
+def _date_role_context_text(page: PageText, evidence: tuple[int, ...], date_raw: str) -> str:
+    """Caption text used for lab date roles.
+
+    A pure date line may use the caption row above it. A line that already has its own words,
+    and a header that already states another date, do not lend their role to this date.
+    """
     row = _date_row(page, evidence)
     if row is None:
         return ""
-    if _NON_TIMELINE_DATE_CAPTION.search(row.text):
+    if _NON_TIMELINE_DATE_CAPTION.search(row.text) or _row_has_other_caption(row.text, date_raw):
         return row.text
-    parts = [row.text]
     above = page.above(row)
-    if above and not looks_like_lab_row(above[0]):
-        header = above[0]
-        if not _NON_TIMELINE_DATE_CAPTION.search(header.text):
-            parts.insert(0, header.text)
-    return " ".join(parts)
+    if not above or looks_like_lab_row(above[0]):
+        return row.text
+    header = above[0]
+    blocked = _NON_TIMELINE_DATE_CAPTION.search(header.text) or _header_states_other_date(
+        header.text, date_raw
+    )
+    if blocked:
+        return row.text
+    return f"{header.text} {row.text}"
 
 
 def _nearest_lab_date_role_before(row_text: str, date_raw: str) -> str | None:
@@ -135,7 +160,7 @@ def _supported_date_role(page: PageText, claim: VisionDate, evidence: tuple[int,
     row = _date_row(page, evidence)
     if row is None:
         return "unsupported"
-    text = _date_role_context_text(page, evidence)
+    text = _date_role_context_text(page, evidence, claim.raw)
     if claim.role in ("specimen", "report"):
         nearest = _nearest_lab_date_role_before(text, claim.raw)
         if nearest != claim.role:
@@ -324,30 +349,37 @@ _CUES: dict[str, tuple[str, ...]] = {
 }
 
 
-def _clause_with_cue(text: str, cue: str) -> str | None:
-    text = normalize(text)
-    if cue not in text:
-        return None
-    for clause in _CLAUSE_SPLIT.split(text):
-        if cue in clause:
-            return clause.strip()
-    return text
+def _clauses(text: str) -> tuple[str, ...]:
+    parts = [clause.strip() for clause in _CLAUSE_SPLIT.split(text) if clause.strip()]
+    return tuple(parts) if parts else ((text,) if text else ())
+
+
+def _types_in_clause(clause: str) -> set[str]:
+    return {name for name, cues in _CUES.items() if any(cue in clause for cue in cues)}
 
 
 def _clause_blocks_event(clause: str) -> bool:
     return _NEGATION.search(clause) is not None or _CANCELLATION.search(clause) is not None
 
 
-def _cue_supported(text: str, cue: str) -> bool:
-    clause = _clause_with_cue(text, cue)
-    if clause is None:
-        return False
-    return not _clause_blocks_event(clause)
-
-
 def wording_types(wording: str) -> set[str]:
-    text = normalize(wording)
-    found = {name for name, cues in _CUES.items() if any(_cue_supported(text, cue) for cue in cues)}
+    """Event types the wording supports.
+
+    A clause that negates or cancels its own cue withdraws that type. A later bare
+    cancellation withdraws types already found. A later positive clause can state the
+    event again. Negation of an unrelated clause, such as a symptom, leaves earlier
+    event types in place.
+    """
+    found: set[str] = set()
+    for clause in _clauses(normalize(wording)):
+        present = _types_in_clause(clause)
+        if _clause_blocks_event(clause):
+            if present:
+                found -= present
+            elif _CANCELLATION.search(clause):
+                found.clear()
+            continue
+        found |= present
     if "recommendation" in found:
         return {"other"}
     if found & {"referral", "appointment_scheduled", "appointment_confirmed"}:

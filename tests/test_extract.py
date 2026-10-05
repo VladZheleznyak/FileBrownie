@@ -105,6 +105,55 @@ def test_negative_sign_is_preserved_when_located():
     (fact,) = interpret_page(spans, page).lab_facts
     assert fact.verification == "verified"
     assert fact.raw_value == "-5"
+    assert fact.value_number == "-5" and fact.comparator is None
+
+
+def test_two_character_comparator_must_match_located_result():
+    spans = row(80, [(10, "Ferritin"), (150, "<=5"), (230, "ng/mL")])
+    unsigned = page_of(lab_rows=[lab("Ferritin", "5", unit="ng/mL")])
+    (fact,) = interpret_page(spans, unsigned).lab_facts
+    assert fact.verification == "unverified reading"
+    assert "VALUE_NOT_AT_RESULT" in fact.notes
+    spans = row(80, [(10, "Ferritin"), (150, ">=5"), (230, "ng/mL")])
+    (fact,) = interpret_page(spans, unsigned).lab_facts
+    assert fact.verification == "unverified reading"
+    assert "VALUE_NOT_AT_RESULT" in fact.notes
+
+
+def test_two_character_comparator_is_preserved_when_located():
+    spans = row(80, [(10, "Ferritin"), (150, "<=5"), (230, "ng/mL")])
+    page = page_of(lab_rows=[lab("Ferritin", "<=5", unit="ng/mL")])
+    (fact,) = interpret_page(spans, page).lab_facts
+    assert fact.verification == "verified"
+    assert fact.comparator == "<=" and fact.value_number == "5"
+    spans = row(80, [(10, "Ferritin"), (150, ">=5"), (230, "ng/mL")])
+    page = page_of(lab_rows=[lab("Ferritin", ">=5", unit="ng/mL")])
+    (fact,) = interpret_page(spans, page).lab_facts
+    assert fact.verification == "verified"
+    assert fact.comparator == ">=" and fact.value_number == "5"
+
+
+def test_plus_and_unicode_minus_must_match_located_result():
+    spans = row(80, [(10, "Base excess"), (150, "+2"), (230, "mmol/L")])
+    unsigned = page_of(lab_rows=[lab("Base excess", "2", unit="mmol/L")])
+    (fact,) = interpret_page(spans, unsigned).lab_facts
+    assert fact.verification == "unverified reading"
+    assert "VALUE_NOT_AT_RESULT" in fact.notes
+    signed = page_of(lab_rows=[lab("Base excess", "+2", unit="mmol/L")])
+    (fact,) = interpret_page(spans, signed).lab_facts
+    assert fact.verification == "verified"
+    assert fact.value_number == "+2"
+    spans = row(80, [(10, "Base excess"), (150, "\u22125"), (230, "mmol/L")])
+    unsigned = page_of(lab_rows=[lab("Base excess", "5", unit="mmol/L")])
+    (fact,) = interpret_page(spans, unsigned).lab_facts
+    assert fact.verification == "unverified reading"
+    assert "VALUE_NOT_AT_RESULT" in fact.notes
+    ascii_sign = page_of(lab_rows=[lab("Base excess", "-5", unit="mmol/L")])
+    (fact,) = interpret_page(spans, ascii_sign).lab_facts
+    assert fact.verification == "verified" and fact.value_number == "-5"
+    unicode_sign = page_of(lab_rows=[lab("Base excess", "\u22125", unit="mmol/L")])
+    (fact,) = interpret_page(spans, unicode_sign).lab_facts
+    assert fact.verification == "verified" and fact.value_number == "-5"
 
 
 def test_reference_qualitative_value_does_not_verify_as_result():
@@ -158,6 +207,19 @@ def test_report_date_cannot_become_specimen_timeline():
     assert unsupported.role == "specimen" and not unsupported.role_supported
 
 
+def test_header_unit_does_not_replace_the_unit_on_the_row():
+    spans = row(20, [(10, "Units: mmol/L")]) + row(
+        80, [(10, "Hemoglobin"), (150, "13.5"), (230, "g/dL")]
+    )
+    claimed = page_of(lab_rows=[lab("Hemoglobin", "13.5", unit="mmol/L")])
+    (fact,) = interpret_page(spans, claimed).lab_facts
+    assert fact.verification == "unverified reading"
+    assert "UNIT_NOT_LOCATED" in fact.notes
+    located = page_of(lab_rows=[lab("Hemoglobin", "13.5", unit="g/dL")])
+    (fact,) = interpret_page(spans, located).lab_facts
+    assert fact.verification == "verified" and fact.unit == "g/dL"
+
+
 def test_birth_date_cannot_inherit_specimen_timeline_role():
     spans = (
         row(20, [(10, "Specimen: serum")])
@@ -173,6 +235,36 @@ def test_birth_date_cannot_inherit_specimen_timeline_role():
     assert "DATE_ROLE_UNSUPPORTED" in fact.notes
     (unsupported,) = [d for d in fact.dates if d.raw == "01.01.1970"]
     assert unsupported.role == "specimen" and not unsupported.role_supported
+
+
+def test_printed_date_does_not_inherit_specimen_role():
+    ferritin = row(80, [(10, "Ferritin"), (150, "12"), (230, "ng/mL")])
+    cases = (
+        (
+            row(20, [(10, "Specimen collected: 12.03.2024")])
+            + row(40, [(10, "Printed: 01.01.2020")])
+            + ferritin,
+            "01.01.2020",
+        ),
+        (
+            row(20, [(10, "Specimen collected: 12.03.2024")])
+            + row(40, [(10, "01.01.1970")])
+            + ferritin,
+            "01.01.1970",
+        ),
+        (
+            row(20, [(10, "Specimen: serum")]) + row(40, [(10, "Printed: 01.01.2020")]) + ferritin,
+            "01.01.2020",
+        ),
+    )
+    for spans, raw in cases:
+        page = page_of(
+            lab_rows=[lab("Ferritin", "12", unit="ng/mL")],
+            dates=[{"raw": raw, "role": "specimen"}],
+        )
+        (fact,) = interpret_page(spans, page).lab_facts
+        assert fact.timeline.role is None
+        assert "DATE_ROLE_UNSUPPORTED" in fact.notes
 
 
 def test_lab_date_role_uses_caption_row_above_split_date_span():
@@ -235,6 +327,25 @@ def test_negated_consultation_is_not_a_verified_encounter():
         ],
     )
     assert interpret_page(spans, page).events == ()
+
+
+def test_cancellation_in_the_following_sentence_is_not_an_encounter():
+    wording = "Urology consultation. This visit was cancelled."
+    spans = row(20, [(10, wording)])
+    page = page_of(
+        document_class="visit_note",
+        events=[{"specialty": "urology", "event_type": "encounter", "wording": wording}],
+    )
+    assert interpret_page(spans, page).events == ()
+    assert wording_types(wording) == set()
+    kept = "Urology consultation occurred. No fever was reported."
+    spans = row(20, [(10, kept)])
+    page = page_of(
+        document_class="visit_note",
+        events=[{"specialty": "urology", "event_type": "encounter", "wording": kept}],
+    )
+    (fact,) = interpret_page(spans, page).events
+    assert fact.verification == "verified" and fact.event_type == "encounter"
 
 
 def test_cancelled_consultation_is_not_a_verified_encounter():
@@ -339,7 +450,12 @@ def test_same_value_in_two_rows_verifies_against_the_correct_row():
 
 def test_parse_value_comparators_qualitative_and_decimals():
     assert parse_value("<5") == ("<", "5", False)
+    assert parse_value("<=5") == ("<=", "5", False)
+    assert parse_value(">= 5") == (">=", "5", False)
     assert parse_value("> 100,5") == (">", "100.5", False)
+    assert parse_value("-5") == (None, "-5", False)
+    assert parse_value("+2") == (None, "+2", False)
+    assert parse_value("\u22125") == (None, "-5", False)
     assert parse_value("negative") == (None, None, True)
     assert parse_value("1:80") == (None, None, False)
 
