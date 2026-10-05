@@ -4,7 +4,14 @@
 #   docker compose -f compose.yaml -f compose.dbeaver.yaml up -d --wait db
 #
 # DBeaver: host localhost, port 15432, database filebrownie, user filebrownie, no password, SSL off.
+# Host port publishing requires a non-internal network; db stays on processing for the app.
 services:
   db:
     ports:
       - "127.0.0.1:15432:5432"
+    networks:
+      - processing
+      - host_access
+
+networks:
+  host_access:
