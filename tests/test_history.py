@@ -373,3 +373,16 @@ def test_mention_sweep_matches_phrase_across_adjacent_spans(repository, folders)
         repository, "labs", "erythrocyte sedimentation rate", parse_range(None, None)
     )
     assert any("erythrocyte" in mention.text.lower() for mention in result.mentions)
+
+
+def test_mention_sweep_matches_phrase_across_adjacent_rows(repository, folders):
+    source, data = folders
+    pdf_lines(
+        source / "esr-rows.pdf",
+        [(20, 20, "erythrocyte"), (20, 60, "sedimentation"), (20, 100, "rate")],
+    )
+    run_full_scan(repository, source, data, None, FakeVision({"lab_rows": []}))
+    result = run_query(
+        repository, "labs", "erythrocyte sedimentation rate", parse_range(None, None)
+    )
+    assert any("erythrocyte" in mention.text.lower() for mention in result.mentions)

@@ -188,26 +188,6 @@ def _newer_staged_scan(repository, active_id: UUID, active_started_at: datetime)
     return newer[-1] if newer else None
 
 
-def _phrase_evidence_keys(
-    content_hash: str,
-    fmt: str,
-    unit_number: int,
-    page: PageText,
-    row,
-    phrase: tuple[str, ...],
-) -> tuple[tuple[str, str, int, int], ...]:
-    if not contains_phrase(stems(row.text), phrase):
-        return ()
-    refs: set[int] = set()
-    for token in phrase:
-        needle = clean(token)
-        if needle:
-            refs.update(page.refs(row, needle))
-    if not refs:
-        refs = set(row.indices)
-    return tuple((content_hash, fmt, unit_number, index) for index in sorted(refs))
-
-
 def sweep(
     repository, generation_id: UUID, scope: Scope, covered: set[tuple[str, str, int, int]]
 ) -> list[Mention]:
@@ -223,21 +203,42 @@ def sweep(
         records = repository.reader.unit_spans(generation_id, content_hash, fmt, unit_number)
         page = PageText.build(tuple(_span_record(record) for record in records))
         seen: set[tuple[int, str]] = set()
+        row_count = len(page.rows)
         for phrase in phrases:
             if not phrase:
                 continue
-            for row in page.rows:
-                if not contains_phrase(stems(row.text), phrase):
-                    continue
-                keys = _phrase_evidence_keys(content_hash, fmt, unit_number, page, row, phrase)
-                if keys and all(key in covered for key in keys):
-                    continue
-                text = " ".join(page.spans[index].text.strip() for index in row.indices)[:100]
-                marker = (unit_number, text)
-                if marker in seen:
-                    continue
-                seen.add(marker)
-                found.append((paths, fmt, unit_number, text))
+            for start in range(row_count):
+                for end in range(start, min(start + 3, row_count)):
+                    sequence = page.rows[start : end + 1]
+                    haystack = tuple(
+                        token for row in sequence for token in stems(row.text)
+                    )
+                    if not contains_phrase(haystack, phrase):
+                        continue
+                    refs: set[int] = set()
+                    for row in sequence:
+                        for token in phrase:
+                            needle = clean(token)
+                            if needle:
+                                refs.update(page.refs(row, needle))
+                    if not refs:
+                        for row in sequence:
+                            refs.update(row.indices)
+                    keys = tuple(
+                        (content_hash, fmt, unit_number, index) for index in sorted(refs)
+                    )
+                    if keys and all(key in covered for key in keys):
+                        continue
+                    text = " ".join(
+                        page.spans[index].text.strip()
+                        for row in sequence
+                        for index in row.indices
+                    )[:100]
+                    marker = (unit_number, text)
+                    if marker in seen:
+                        continue
+                    seen.add(marker)
+                    found.append((paths, fmt, unit_number, text))
     found.sort()
     mentions: list[Mention] = []
     index = 0
