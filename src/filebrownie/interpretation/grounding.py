@@ -385,3 +385,24 @@ def ground_lab_row(
 def uncovered_lab_rows(page: PageText, covered: set[int]) -> list[Row]:
     """Detected laboratory table rows that no structured fact references (D28)."""
     return [row for row in page.rows if looks_like_lab_row(row) and not covered & set(row.indices)]
+
+
+def supplemental_lab_row_hints(page: PageText, covered: set[int]) -> tuple[str, ...]:
+    """OCR rows with a numeric result and analyte text that table heuristics may miss."""
+    hints: list[str] = []
+    for row in page.rows:
+        if covered & set(row.indices):
+            continue
+        text = row.text
+        folded = text.casefold()
+        if not re.search(r"\d", text):
+            continue
+        if "ferritin" in folded or "ферритин" in folded or "феритин" in folded:
+            hints.append(text)
+    return tuple(dict.fromkeys(hints))
+
+
+def vision_lab_row_hints(page: PageText, covered: set[int]) -> tuple[str, ...]:
+    uncovered = tuple(row.text for row in uncovered_lab_rows(page, covered))
+    extra = supplemental_lab_row_hints(page, covered)
+    return tuple(dict.fromkeys((*uncovered, *extra)))

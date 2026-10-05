@@ -18,7 +18,7 @@ from filebrownie.evidence.ocr import OcrEngine, OcrError
 from filebrownie.evidence.worker import MAX_ARTIFACT_BYTES
 from filebrownie.ingestion.progress import ProgressFn, ScanProgress
 from filebrownie.interpretation.extract import interpret_page
-from filebrownie.interpretation.grounding import PageText, uncovered_lab_rows
+from filebrownie.interpretation.grounding import PageText, vision_lab_row_hints
 from filebrownie.interpretation.vision import (
     VisionClient,
     VisionError,
@@ -186,7 +186,7 @@ def _process_unit(
                 for fact in interpretation.lab_facts
                 for index in (*fact.evidence, *fact.alternative_evidence)
             }
-            hints = tuple(row.text for row in uncovered_lab_rows(page_text, covered))
+            hints = vision_lab_row_hints(page_text, covered)
             if hints:
                 supplement_version = f"{vision.version};supplement={hashlib.sha256('|'.join(hints).encode()).hexdigest()[:8]}"
 
