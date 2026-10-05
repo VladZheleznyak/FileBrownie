@@ -62,7 +62,7 @@ def test_ambiguous_slash_date_aligns_with_filename_path():
             "dates": [{"raw": "05/09/2023", "role": "report"}],
         }
     )
-    path = ("2023 nutritionist/2023-05-04 VolodymyrZhelezniak-BW2023-5-4.pdf",)
+    path = ("reports/2023-05-04 sample-bw.pdf",)
     (fact,) = interpret_page(spans, page, path).lab_facts
     (specimen,) = [item for item in fact.dates if item.raw == "05/04/2023"]
     assert specimen.alternatives[0].start == date(2023, 5, 4)

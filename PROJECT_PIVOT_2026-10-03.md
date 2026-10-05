@@ -132,9 +132,9 @@ contextual disambiguation belong to vNext (D29).
 For laboratory results, preserve reported values, units, reference intervals, and
 date meaning where available. Do not invent missing dates or units. Distinguish
 specimen, encounter, and report dates where documented. When a document gives no
-date, the row remains undated. Filename-date fallback and modification-time
-hints move to vNext. Keep differing units visibly separate; automatic conversion
-and advanced normalization are deferred.
+grounded date, a laboratory row may use an agreed filename date (D45); otherwise
+it stays undated. Modification-time hints move to vNext. Keep differing units
+visibly separate; automatic conversion and advanced normalization are deferred.
 
 Laboratory timelines prefer specimen date, then report date, then an unspecified
 document date, showing the role and retaining other reported dates. Specialty
@@ -242,23 +242,15 @@ pruning and derived erasure; missing generated evidence is labeled unavailable
 No new user features. The target is reliable operation for one person on the
 reference machine, not a claim of certification or readiness for a hosted service.
 
-- Verify installation and model provisioning are repeatable.
-- Test interruption recovery, failed scans, and replacement-index activation.
-- Verify read-only originals, local sensitive-data handling, and runtime egress
-  control. Basic protections already apply in Phase 1.
-- Improve operational logging with a shared event schema and centralized local
-  sink for designated sanitized streams, consistent fields, bounded retention,
-  and synthetic leakage checks. Do not collect medical CLI output. Keep the
-  logging boundary suitable for future JSON formatters, PII screening, and
-  Sentry adapters; those integrations remain vNext. No external telemetry is
-  enabled, and a separate logging service requires demonstrated need (D39).
+Repeatable installation, interruption recovery, read-only and egress checks,
+centralized local sanitized logging, query-latency measurement, and degraded-image
+fixtures are implemented. JSON formatters, richer PII screening, and Sentry
+adapters stay in vNext. No external telemetry is enabled (D39).
+
+Still open:
+
 - Evaluate extraction and retrieval against the user's local manual checks.
   Document observed omissions and reading errors; do not claim unmeasured accuracy.
-- Measure query latency and optimize demonstrated bottlenecks without expanding
-  product scope. Velocity means query speed, not development speed.
-- Exercise meaningful failure paths and preserve synthetic regression coverage.
-  Add degraded-image fixtures such as skew, blur, low contrast, stamps over text,
-  and partial handwriting.
 
 ## Architecture and future flexibility
 
@@ -305,12 +297,10 @@ committing private inputs or results (D6, D37).
 - Add optional CSV, JSON, and Markdown exports, user-decision backup/export,
   dictionary-seed promotion tools, and rendered evidence crops. MVP uses terminal
   tables and text evidence references.
-- Add a standalone inventory command; MVP reports source/unit counts as part of
-  scanning and status. Add a reusable synthetic-fixture generator; MVP retains
-  small synthetic fixtures and essential failure/semantic checks.
-- Add modification-time hints, with explicit inferred date labels. Filename-date
-  fallback for laboratory rows is implemented (D45); rows without any inferred or
-  document date stay undated.
+- Add a reusable synthetic-fixture generator. Small synthetic fixtures and
+  essential failure/semantic checks stay in the MVP.
+- Add modification-time hints, with explicit inferred date labels. Rows without
+  a document date or an agreed filename date stay undated (D45).
 - Add `possible duplicate` heuristics for nonidentical content. MVP retains
   content-hash identity and all source locations, without semantic deduplication.
 - Discover document categories and useful fields dynamically; this is the leading
@@ -370,6 +360,6 @@ committing private inputs or results (D6, D37).
 
 ## Documentation reconciliation
 
-Completed on 2026-10-03. The repository contained no code. The passport-oriented
-project plan and Phase 1 technology decisions were deleted, and Git history
-preserves them. No capability described here is implemented yet.
+Completed on 2026-10-03. The passport-oriented project plan and Phase 1
+technology decisions were deleted, and Git history preserves them. Implementation
+status is tracked in the checklist and the architecture's implemented baseline.

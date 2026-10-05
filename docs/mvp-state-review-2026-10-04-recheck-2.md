@@ -8,8 +8,8 @@ read-only model weights, and the local inference service.
 
 **Update (2026-10-04):** Findings N1–N4 were addressed in commits `392773d` through
 `821006b` (signed results, qualitative result-field grounding, birth-date role
-isolation, and test Compose volume override). Re-run the validation table below on
-that range before treating the verifier gaps as closed.
+isolation, and test Compose volume override). Regressions live in
+`tests/test_extract.py` and `tests/test_deployment_policy.py`. They are not open tasks.
 
 **Verdict: the feature scope matches the MVP, and the previous regression cases are
 fixed. Required source-verification guarantees still have three reproducible gaps.**
@@ -35,7 +35,7 @@ additional Phase 1 delivery gate.
 The earlier named-group, coverage-warning, split-phrase, dictionary, cache, and
 erasure fixes remain in the tree and their regression suite passes.
 
-## Remaining findings
+## Findings at review time (since fixed)
 
 ### N1 — P1: a minus sign can disappear from a verified result
 
@@ -145,5 +145,4 @@ reconstruction remains vNext.
 Host-only symlink aliases and enforcing generated storage outside Git remain
 installation-hardening weaknesses documented in README. No new failure with the
 valid isolated configuration was observed here. Real-document accuracy remains
-unmeasured, as agreed. The extraction checklist should qualify its completed
-verification claims until N1–N3 are addressed.
+unmeasured, as agreed.

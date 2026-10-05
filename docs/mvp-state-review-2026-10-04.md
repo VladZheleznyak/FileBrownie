@@ -1,5 +1,9 @@
 # MVP state review — 2026-10-04
 
+The fix tasks below were completed in later reviews and commits. This file is the
+original review record, not an open task list. Remaining delivery work is the
+user-led real-data evaluation in [implementation-checklist.md](implementation-checklist.md).
+
 Reviewed commit: `397aeb4` (`Implement Phase 1 local medical processing pipeline`).
 The checkout was clean before this review. This report is the only repository change.
 No application code was changed, and no private source documents or production database
@@ -54,7 +58,7 @@ The standalone inventory and reader/debug commands go beyond D30's stated minimu
 interface. They already support implementation diagnostics; this is minor scope drift,
 not a reason to add further product features or redesign the architecture.
 
-## Required fixes
+## Findings at review time (since fixed)
 
 ### F1 — P1: laboratory verification accepts the wrong result and unit
 
@@ -157,6 +161,9 @@ inside a span already used by a fact; review that boundary conservatively.
 
 ## Other discrepancies and weak points
 
+These items were closed in later commits, except host-path symlink aliases and an
+outside-Git check, which remain installation hardening.
+
 - **Ungrounded result fields:** `extract.py:102` preserves a model-supplied reference
   interval and flag without grounding. A fabricated `99-999` interval and `H` flag
   survived on a verified fact although neither existed in the source. Ground these
@@ -181,11 +188,9 @@ inside a span already used by a fact; review that boundary conservatively.
 - **Erasure recovery:** database deletion commits before filesystem cleanup. A cleanup
   failure can leave sensitive artifacts after rows are deleted. The operation reports
   an error and can be retried; document and exercise that partial failure explicitly.
-- **Documentation drift:** README lines 122, 153, 214, and 231 still describe activation,
-  OCR/vision, pruning/erasure, and isolation checks as unimplemented/pending. The decision
-  record introduction says nothing is implemented yet, while the checklist broadly
-  marks delivery guarantees complete. Keep intended decisions distinct from verified
-  implementation status and reopen affected checklist items.
+- **Documentation drift:** README and the decision-record introduction described
+  delivered behavior as unimplemented. Later edits separated intended decisions
+  from verified implementation status. Do not reopen completed checklist items.
 
 Unverified readings are visibly marked in the main dated/undated tables; this review
 is not treating their presence alone as a defect. The concern is unsupported readings
@@ -193,11 +198,11 @@ that receive stronger verification or lose their coverage/candidate qualificatio
 
 ## Evaluation and suggested order
 
-Fix F1–F4 first and add focused synthetic regressions for these exact counterexamples.
-Fix F5/F6 and dictionary/cache issues next; reconcile the README/checklist with the
-actual behavior. Then perform the agreed user-led real-data evaluation using local
-manual checks. Keep D36/D41 provisional and record observed omissions/reading errors
-without claiming an accuracy percentage lacking a reviewed denominator.
+F1–F6 and the dictionary, cache, documentation, and erasure follow-ups were fixed
+after this review. The remaining delivery task is user-led real-data evaluation
+with local manual checks. Keep D36/D41 provisional and record observed omissions
+and reading errors without claiming an accuracy percentage lacking a reviewed
+denominator.
 
 Known limitations remain material: no measured real-document accuracy, skew/rotation
 sensitivity beyond existing orientation handling, uninterpreted handwriting, missing

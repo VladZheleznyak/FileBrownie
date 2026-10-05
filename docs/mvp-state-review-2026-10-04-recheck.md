@@ -1,5 +1,10 @@
 # MVP recheck — 2026-10-04
 
+R1–R3 and the latency, CLI-help, and checklist follow-ups below were fixed after
+this recheck. This file is the original review record, not an open task list.
+Host-only symlink aliases and an outside-Git check remain installation hardening,
+not a demonstrated failure of the valid configuration.
+
 Reviewed commit: `6fece51` (`Fix MVP review correctness gaps in grounding and queries`).
 This follows the initial review of `397aeb4`. No application code was changed during
 this recheck. Private documents and the production database were excluded from all
@@ -31,7 +36,7 @@ The truncation probe explicitly force-activated the completed synthetic generati
 before querying it. The replacement guard correctly held it staged initially; querying
 the prior active generation would not establish the candidate generation's warnings.
 
-## Remaining high-priority findings
+## Findings at review time (since fixed)
 
 ### R1 — P1: the unsupported date role is discarded by the fix itself
 
@@ -86,20 +91,12 @@ claim. A small conservative rule is sufficient; no vNext event reconstruction is
 
 ## Other remaining weaknesses
 
-- The latency fixture prints months varying from January to September but assigns June
-  to every extracted date (`tests/test_latency.py:27` and `:30`). The nonempty group
-  assertion is useful, but most fixture dates do not ground and become undated/excluded.
-  Generate one date string for both the PDF and model claim, and assert expected result
-  coverage rather than merely at least one row.
-- CLI help still says extraction is pending and scans run reader foundations only
-  (`src/filebrownie/presentation/cli.py:778` and `:793`). This contradicts the delivered
-  full pipeline and the updated README.
-- Host overlap validation now checks configured path strings, but resolving those host
+- Host overlap validation checks configured path strings, but resolving those host
   paths inside the container cannot resolve host-only symlink aliases. There is still
   no outside-Git check. This is remaining installation hardening, not a demonstrated
   failure with the valid configuration used here.
-- The checklist still broadly marks role-grounding verification complete despite R1's
-  failing regression. Reconcile those completion claims after the checks pass.
+- The latency-fixture dates, stale CLI help, and checklist claims about R1 were
+  corrected after this recheck.
 
 ## Validation
 

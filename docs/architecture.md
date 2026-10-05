@@ -55,13 +55,13 @@ PostgreSQL and the model server are configured to omit statements, parameters,
 value-bearing error details, prompts, and responses; a service that cannot
 meet D38 has its Docker log capture disabled too.
 
-Phase 2 adds a shared operational event schema and centralized local sink for
-designated sanitized streams (D39). Common fields identify opaque runs/generations,
-components, steps, severity, counts/timings, and safe error codes. Start with a
-simple local sink; a separate Compose logging service needs demonstrated need.
-Keep app-managed logs outside Git and originals, bound retention, and include
-them in derived/all erasure. Verify leakage prevention with synthetic errors
-and diagnostics; do not claim forensic erasure or removal of external backups.
+Phase 2 centralizes designated sanitized streams in a shared operational event
+schema and a local file sink (D39). Common fields identify opaque runs/generations,
+components, steps, severity, counts/timings, and safe error codes. A separate
+Compose logging service needs demonstrated need. App-managed logs stay outside
+Git and originals, use bounded retention, and are included in derived/all
+erasure. Leakage prevention is checked with synthetic errors and diagnostics;
+this is not a claim of forensic erasure or removal of external backups.
 
 This boundary supports future JSON formatters, PII-screening stages, and Sentry
 adapters without building those integrations now. Current sanitization does not

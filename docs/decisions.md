@@ -32,8 +32,8 @@ North American documents and non-medical files are not expected. The scanner
 still classifies anything unexpected as `other` instead of assuming it cannot occur.
 
 The Phase 1 scan reports supported file, PDF page, image, and unsupported-file
-counts, so the estimate is replaced by a measurement. A standalone inventory
-command is deferred to vNext (D30).
+counts, so the estimate is replaced by a measurement. `inventory` lists those
+sources without parsing them.
 
 ### D2 - One patient, no identity checks
 
@@ -305,9 +305,10 @@ within range`. Ambiguous or conflicting dates retain all supported alternatives;
 when any alternative overlaps, show the row as a date-uncertain candidate
 rather than selecting a date or silently excluding it (D34).
 
-When the document gives no date, the row stays in a separate `undated` section.
-Filename-date fallback and modification-time hints are deferred to vNext (D30).
-Undated rows are excluded from date-filtered results, but their count is reported.
+When the document gives no date, the row stays in a separate `undated` section
+unless laboratory timeline inference finds one agreed filename date (D45).
+Modification-time hints are deferred to vNext (D30). Undated rows are excluded
+from date-filtered results, but their count is reported.
 
 ### D22 - Duplicates
 
@@ -407,8 +408,9 @@ Confirmed during the architectural interview on 2026-10-03:
   references identify the row and its applicable context, including a header
   when the specimen, unit, or date is shared by multiple rows. An absent field
   is not invented; a reported field whose association cannot be grounded keeps
-  the reading unverified or conflicting. Filename-date fallback is deferred
-  to vNext (D30); rows without document dates stay undated.
+  the reading unverified or conflicting. Rows without a document date or an
+  agreed filename date stay undated (D45). Modification-time hints remain
+  deferred (D30).
 - When readers assign a value to different analytes, retain both interpretations
   as one unresolved candidate with their respective source references. Show it
   separately from confirmed result rows in queries for either proposed analyte;
@@ -457,9 +459,9 @@ Keep the existing modular boundaries; do not build extension frameworks for
 future domains. Phase 2 hardens these same capabilities.
 
 Defer optional output formats, evidence crops, dedicated decision backup/export
-and seed-promotion tools, a standalone inventory command, a reusable fixture
-generator, modification-time hints, and nonidentical duplicate heuristics to
-vNext. Filename-date fallback for laboratory timelines is in scope (D45).
+and seed-promotion tools, a reusable fixture generator, modification-time hints,
+and nonidentical duplicate heuristics to vNext. Filename-date fallback for
+laboratory timelines is in scope (D45). Source inventory listing is implemented.
 Scans/status still expose counts; rows without document or agreed filename dates
 remain undated, and small synthetic correctness/failure fixtures remain required.
 Input scope was subsequently narrowed to PDF and JPG/JPEG in D31.
@@ -787,13 +789,12 @@ Provisional with D36 pending real-document evaluation:
 The architecture-blocking product branches raised in this review are resolved
 for the current MVP. D36 and D41 remain provisional pending user-led real-data
 review.
-Implementation choices, including model/runtime selection, parser limits, and
-cache artifact layout, are selected during development rather than by further
-product gates. They remain unverified until implemented and checked.
+Model and runtime selection, cache layout, and Phase 2 local logging are
+recorded in the architecture's implemented baseline. Parser limits, text-layer
+heuristics, and deskewing stay open until real-data review justifies a change.
 
 Deferred work stays in the pivot's vNext backlog. The user checks real data
-after Phase 1 implementation delivery and defines follow-up tasks (D37). Logging
-centralization is Phase 2 hardening (D39), not an additional Phase 1 prerequisite.
+after Phase 1 implementation delivery and defines follow-up tasks (D37).
 
 ### D45 - Filename-date fallback for laboratory timelines
 

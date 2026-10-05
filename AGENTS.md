@@ -12,7 +12,7 @@
 - Keep the evidence foundation independent of medical types so future document domains can reuse it. Do not implement vNext features solely to preserve flexibility.
 - Keep the MVP simple. Resolve only decisions that block implementation architecture or required correctness, privacy, and recovery; defer optional features and richer workflows to vNext. Follow D29 through D44 for the latest scope refinements; D36 and D41 are provisional pending real-document evaluation.
 - Deliver Phase 1 implementation before user-led real-data evaluation (D37). Use synthetic fixtures and basic hardware checks during implementation; do not require a private-original demonstration or formal benchmark as a delivery gate.
-- Use sanitized operational logs only; do not capture medical CLI output or raw reader/model/database diagnostics into logs (D38). Phase 2 adds centralized local logging; JSON formatters, richer PII screening, and Sentry adapters are future integrations (D39), with no external telemetry in current phases.
+- Use sanitized operational logs only; do not capture medical CLI output or raw reader/model/database diagnostics into logs (D38). Phase 2 centralized local logging is in place; JSON formatters, richer PII screening, and Sentry adapters are future integrations (D39), with no external telemetry in current phases.
 - Keep network-enabled model setup isolated from source documents and generated medical data. Processing services never download missing weights; report a setup error instead (D38).
 
 ## Privacy
