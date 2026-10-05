@@ -43,3 +43,28 @@ def test_filename_timeline_ignored_when_specimen_date_is_grounded():
     (fact,) = interpret_page(spans, page, ("2025-12-08bw.jpg",)).lab_facts
     assert fact.timeline.role == "specimen"
     assert "FILENAME_DATE_INFERRED" not in fact.notes
+
+
+def test_ambiguous_slash_date_aligns_with_filename_path():
+    spans = row(20, [(10, "Specimen collected: 05/04/2023")]) + row(
+        80, [(10, "Ferritin"), (150, "186"), (230, "ug/L")]
+    )
+    page = parse_page(
+        {
+            "lab_rows": [
+                {
+                    "label": "FERRITIN",
+                    "value": "186",
+                    "unit": "ug/L",
+                    "dates": [{"raw": "05/04/2023", "role": "specimen"}],
+                }
+            ],
+            "dates": [{"raw": "05/09/2023", "role": "report"}],
+        }
+    )
+    path = ("2023 nutritionist/2023-05-04 VolodymyrZhelezniak-BW2023-5-4.pdf",)
+    (fact,) = interpret_page(spans, page, path).lab_facts
+    (specimen,) = [item for item in fact.dates if item.raw == "05/04/2023"]
+    assert specimen.alternatives[0].start == date(2023, 5, 4)
+    assert len(specimen.alternatives) == 1
+    assert "FILENAME_DATE_ALIGNED" in fact.notes

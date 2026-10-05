@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 from filebrownie.interpretation.dates import DateValue
 
-EXTRACTOR_VERSION = "interpretation-6"
+EXTRACTOR_VERSION = "interpretation-7"
 
 VERIFIED = "verified"
 UNVERIFIED = "unverified reading"

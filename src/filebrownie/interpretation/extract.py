@@ -2,6 +2,7 @@
 
 import re
 from collections.abc import Sequence
+from dataclasses import replace
 from decimal import Decimal, InvalidOperation
 
 from filebrownie.evidence.models import TextSpan
@@ -385,6 +386,34 @@ def _apply_filename_timeline(fact: LabFact, source_paths: Sequence[str]) -> LabF
     )
 
 
+def _resolve_ambiguous_dates_with_filename(fact: LabFact, source_paths: Sequence[str]) -> LabFact:
+    """When path consensus matches one ambiguous numeric reading, keep that reading only."""
+    consensus = consensus_filename_dates(source_paths)
+    if len(consensus) != 1 or consensus[0].precision != "day":
+        return fact
+    target = consensus[0]
+    new_dates: list[ReportedDate] = []
+    changed = False
+    for item in fact.dates:
+        if len(item.alternatives) <= 1:
+            new_dates.append(item)
+            continue
+        matched = tuple(
+            alt
+            for alt in item.alternatives
+            if alt.start == target.start and alt.end == target.end and alt.precision == "day"
+        )
+        if len(matched) == 1:
+            new_dates.append(replace(item, alternatives=matched))
+            changed = True
+        else:
+            new_dates.append(item)
+    if not changed:
+        return fact
+    notes = tuple(dict.fromkeys((*fact.notes, "FILENAME_DATE_ALIGNED")))
+    return replace(fact, dates=tuple(new_dates), notes=notes)
+
+
 def _lab_fact(page: PageText, vision: VisionPage, row: VisionLabRow) -> LabFact:
     grounding = ground_lab_row(page, row.label, row.value, row.unit, row.specimen)
     dates = _dates(page, _lab_dates(row, vision.dates))
@@ -630,7 +659,10 @@ def interpret_page(
     page = PageText.build(spans)
     lab_facts = []
     for row in vision.lab_rows:
-        fact = _apply_filename_timeline(_lab_fact(page, vision, row), source_paths)
+        fact = _resolve_ambiguous_dates_with_filename(
+            _apply_filename_timeline(_lab_fact(page, vision, row), source_paths),
+            source_paths,
+        )
         lab_facts.append(fact)
     lab_facts = tuple(lab_facts)
     # Events without source wording, or mention-only wording, stay out of visit rows (D36).
