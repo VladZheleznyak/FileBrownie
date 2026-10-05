@@ -361,6 +361,17 @@ services, and PostgreSQL statement/parameter logging is disabled. `doctor` and
 scan-time checks enforce egress isolation, read-only mounts, and (when configured)
 separate host source and generated-data folders.
 
+To inspect the database from DBeaver (or another client on the same machine),
+merge `compose.dbeaver.yaml`, which publishes PostgreSQL on loopback only:
+
+```sh
+docker compose -f compose.yaml -f compose.dbeaver.yaml up -d --wait db
+```
+
+Connect to `localhost:15432`, database `filebrownie`, user `filebrownie`, no
+password, SSL disabled. Omit `compose.dbeaver.yaml` when you do not need a host
+client.
+
 The `inference` profile runs the local vision model service (llama.cpp server,
 pinned by image digest, on the internal network, offline, with server logging
 disabled). The `setup` profile is the only service with network access and mounts

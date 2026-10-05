@@ -1,0 +1,10 @@
+# Optional loopback-only PostgreSQL port for local clients (e.g. DBeaver).
+# Use only on a trusted machine; do not publish on a public network.
+#
+#   docker compose -f compose.yaml -f compose.dbeaver.yaml up -d --wait db
+#
+# DBeaver: host localhost, port 15432, database filebrownie, user filebrownie, no password, SSL off.
+services:
+  db:
+    ports:
+      - "127.0.0.1:15432:5432"
