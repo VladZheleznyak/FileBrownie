@@ -3,6 +3,7 @@
 The model output is a claim to be grounded in located text, never evidence by itself.
 """
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
@@ -141,6 +142,16 @@ def _is_placeholder_lab_value(value: str) -> bool:
     return token in _PLACEHOLDER_VALUES
 
 
+_INTEGER_TRAILING_PERIOD = re.compile(r"^\d+\.$")
+
+
+def _normalize_lab_value(value: str) -> str:
+    stripped = value.strip()
+    if _INTEGER_TRAILING_PERIOD.match(stripped):
+        return stripped[:-1]
+    return value
+
+
 def _dates(value) -> tuple[VisionDate, ...]:
     result = []
     for item in _list(value, MAX_DATES):
@@ -172,6 +183,7 @@ def parse_page(data: dict) -> VisionPage:
         if _is_placeholder_lab_value(value):
             dropped += 1
             continue
+        value = _normalize_lab_value(value)
         rows.append(
             VisionLabRow(
                 label,

@@ -59,6 +59,14 @@ def test_value_absent_from_text_is_unverified():
     assert fact.verification == "unverified reading"
 
 
+def test_integer_value_with_trailing_period_verifies_when_row_matches():
+    spans = row(80, [(10, "Ferritin"), (150, "186"), (230, "ug/L"), (320, "22-537")])
+    page = page_of(lab_rows=[lab("Ferritin", "186.", unit="ug/L")])
+    (fact,) = interpret_page(spans, page).lab_facts
+    assert fact.verification == "verified"
+    assert fact.value_number == "186"
+
+
 def test_reference_interval_value_does_not_verify_as_result():
     spans = row(80, [(10, "Ferritin"), (150, "12"), (230, "ng/mL"), (320, "15-150")])
     page = page_of(lab_rows=[lab("Ferritin", "15", unit="ng/mL")])
