@@ -29,12 +29,16 @@ def test_inventory_output_reports_unsupported_and_escapes_controls(tmp_path, mon
     source, _ = configure_inventory(tmp_path, monkeypatch)
     (source / "synthetic\nreport.PDF").write_bytes(b"synthetic")
     (source / "archive.zip").write_bytes(b"synthetic")
+    (source / "звіт.pdf").write_bytes(b"synthetic")
     assert main(["inventory"]) == 0
     output = capsys.readouterr().out
-    assert "Supported files: 1" in output
+    assert "Supported files: 2" in output
     assert "Unsupported files: 1" in output
-    assert "unsupported\t-\t'archive.zip'" in output
+    assert "unsupported\t-\tarchive.zip\t" in output
+    assert "ready\tpdf\tзвіт.pdf\t" in output
+    assert "\\u0437" not in output
     assert "synthetic\\nreport.PDF" in output
+    assert "\nreport.PDF" not in output
     assert "extraction coverage is unknown" in output
 
 

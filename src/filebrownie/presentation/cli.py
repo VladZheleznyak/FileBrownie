@@ -5,7 +5,6 @@ import json
 import os
 import sys
 import time
-import unicodedata
 from collections.abc import Sequence
 from contextlib import nullcontext
 from pathlib import Path
@@ -83,7 +82,7 @@ def inventory(save: bool = False) -> int:
             for record in result.records:
                 # Escape controls and Unicode formatting characters in terminal filenames.
                 print(
-                    f"{record.status}\t{record.format or '-'}\t{ascii(record.relative_path)}\t"
+                    f"{record.status}\t{record.format or '-'}\t{safe(record.relative_path)}\t"
                     f"{', '.join(record.warnings) or '-'}"
                 )
             incomplete = any(
@@ -656,13 +655,13 @@ def dictionary_command(action: str, label: str | None = None, concept: str | Non
                     print(f"Unreviewed proposals (auto-mapped, unreviewed): {len(pending)}")
                     for item in pending:
                         print(
-                            f"  {ascii(item['label'])} -> {snapshot.describe(item['concept_id'])}"
+                            f"  {safe(item['label'])} -> {snapshot.describe(item['concept_id'])}"
                         )
                 decisions = store.decisions()
                 print(f"Decisions: {len(decisions)}")
                 for item in decisions:
                     print(
-                        f"  {item['verdict']}: {ascii(item['label'])} -> "
+                        f"  {item['verdict']}: {safe(item['label'])} -> "
                         f"{snapshot.describe(item['concept_id'])}"
                     )
                 return 0
@@ -674,7 +673,7 @@ def dictionary_command(action: str, label: str | None = None, concept: str | Non
                 print("Decision removed." if done else "No such decision.")
                 return 0 if done else 1
             store.decide(label, concept, "accepted" if action == "accept" else "rejected")
-            print(f"Recorded: {action} {ascii(label)} -> {concept}. No rescan is needed.")
+            print(f"Recorded: {action} {safe(label)} -> {concept}. No rescan is needed.")
             return 0
     except (InventoryError, OperationLockError, OperationBusyError, DatabaseError) as error:
         print(str(error), file=sys.stderr)
@@ -711,7 +710,7 @@ def database_command(command: str, generation_id: UUID | None = None) -> int:
                 paths = getattr(difference, label)
                 print(f"{label.capitalize()}: {len(paths)}")
                 for path in paths:
-                    print(f"  {ascii(path)}")
+                    print(f"  {safe(path)}")
             generation = next(item for item in repository.generations() if item.id == generation_id)
             print(f"Generation state: {generation.state}")
             print("This does not activate a medical index or establish extraction coverage.")
@@ -787,7 +786,7 @@ def evidence_command(source_name: str | None = None, reference: UUID | None = No
             else:
                 result = inspect_evidence(data, str(reference))
             print(f"Evidence reference: {result.reference}")
-            print(f"Reader source at creation: {ascii(result.source)}")
+            print(f"Reader source at creation: {safe(result.source)}")
             print(f"Reader status: {result.evidence.status}")
             count = result.evidence.page_count
             print(f"Page/image count: {count if count is not None else 'unknown'}")
@@ -802,15 +801,9 @@ def evidence_command(source_name: str | None = None, reference: UUID | None = No
                 )
                 if reference is not None:
                     for span in unit.spans:
-                        safe = "".join(
-                            character
-                            if not unicodedata.category(character).startswith("C")
-                            else character.encode("unicode_escape").decode("ascii")
-                            for character in span.text
-                        )
                         print(
                             f"  {span.bbox or 'page-level location'}: "
-                            f"{json.dumps(safe, ensure_ascii=False)}"
+                            f"{json.dumps(safe(span.text), ensure_ascii=False)}"
                         )
             return 0 if result.evidence.status == "completed" else 1
     except (
