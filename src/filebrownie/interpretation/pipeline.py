@@ -19,6 +19,7 @@ from filebrownie.evidence.worker import MAX_ARTIFACT_BYTES
 from filebrownie.ingestion.progress import ProgressFn, ScanProgress
 from filebrownie.interpretation.extract import interpret_page
 from filebrownie.interpretation.grounding import PageText, vision_lab_row_hints
+from filebrownie.interpretation.llama_vision import DROPPED_LAB_ROWS_HINT
 from filebrownie.interpretation.vision import (
     VisionClient,
     VisionError,
@@ -88,6 +89,67 @@ def _step(
 ) -> None:
     if progress is not None:
         progress(ScanProgress(stage="step", unit=unit, pages=pages, step=step, cached=cached))
+
+
+def _merge_dropped_lab_retry(
+    repository,
+    vision: VisionClient,
+    image: bytes,
+    content_hash: str,
+    format: str,
+    unit_number: int,
+    raster_hash: str,
+    page,
+    progress: ProgressFn | None,
+    page_count: int | None,
+):
+    retry_version = f"{vision.version};dropped-retry=1"
+
+    def retry() -> dict:
+        try:
+            claimed = vision.extract(image, lab_row_hints=(DROPPED_LAB_ROWS_HINT,))
+            parse_page(
+                {
+                    "document_class": page.document_class,
+                    "handwriting": page.handwriting,
+                    "context_missing": page.context_missing,
+                    "dates": [],
+                    "lab_rows": claimed.get("lab_rows", []),
+                    "events": [],
+                }
+            )
+        except VisionError:
+            raise
+        except Exception:
+            raise VisionError("VISION_FAILED") from None
+        return {"page": claimed}
+
+    try:
+        extra_payload = _run_cached(
+            repository,
+            "vision-dropped-retry",
+            content_hash,
+            format,
+            unit_number,
+            raster_hash,
+            retry_version,
+            retry,
+            lambda cached: cached["page"],
+            lambda hit: _step(progress, page_count, unit_number, "vision-dropped-retry", hit),
+        )
+    except VisionError:
+        return page
+    extra = parse_page(
+        {
+            "document_class": page.document_class,
+            "handwriting": False,
+            "context_missing": False,
+            "dates": [],
+            "lab_rows": extra_payload["page"].get("lab_rows", []),
+            "events": [],
+        }
+    )
+    return merge_vision_lab_rows(page, extra)
 
 
 def _process_unit(
@@ -176,6 +238,19 @@ def _process_unit(
                 lambda hit: _step(progress, page_count, unit.number, "vision", hit),
             )
             page = parse_page(payload["page"])
+            if page.dropped > 0 and page.document_class == "lab_report":
+                page = _merge_dropped_lab_retry(
+                    repository,
+                    vision,
+                    image,
+                    content_hash,
+                    format,
+                    unit.number,
+                    raster_hash,
+                    page,
+                    progress,
+                    page_count,
+                )
         except VisionError as error:
             failures.append(str(error) if str(error).startswith("VISION_") else "VISION_FAILED")
         else:

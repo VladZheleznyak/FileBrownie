@@ -569,6 +569,19 @@ def test_prose_with_numeric_range_is_not_a_lab_row():
     assert not looks_like_lab_row(PageText.build(prose).rows[0])
 
 
+def test_dense_canadian_panel_line_is_a_lab_row():
+    panel = row(
+        80,
+        [
+            (
+                10,
+                "12 FERRITIN TEST STATUS Final REFERENCE 22 - 537 YOUR RESULT 186 ug/L normal",
+            )
+        ],
+    )
+    assert looks_like_lab_row(PageText.build(panel).rows[0])
+
+
 def test_unparseable_located_date_is_not_stored():
     spans = row(20, [(10, "Specimen collected: 6")]) + row(
         80, [(10, "Ferritin"), (150, "12"), (230, "ng/mL")]

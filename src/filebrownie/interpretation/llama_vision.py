@@ -40,7 +40,8 @@ Rules:
 - Report only what is visible on this page. When unsure, omit the item.
 - lab_rows: one entry per laboratory result row. label, value, unit, reference_interval, flag \
 and specimen are exactly as printed (keep "<", ">", decimal commas, and flags such as H, L, \
-arrows). Add specimen only when the page states it.
+arrows). Add specimen only when the page states it. On dense panels with many columns on one \
+printed line, still emit one lab_rows entry per analyte result.
 - dates: every date visible on the page, raw as printed. role is "specimen" for \
 collection/sampling dates, "report" for report/issue/print dates, "event" for visit or \
 appointment dates, otherwise "unspecified". A date belonging to a row goes on that row.
@@ -61,6 +62,17 @@ SUPPLEMENT_SYSTEM_PROMPT = """\
 You extract laboratory result rows from ONE page image. Copy text exactly as printed. \
 Return only lab_rows for the printed row texts listed in the user message. Omit rows not listed. \
 Do not translate or infer."""
+
+DROPPED_LAB_ROWS_HINT = "__dropped_lab_rows_retry__"
+
+DROPPED_RETRY_SYSTEM_PROMPT = """\
+You extract laboratory result rows from ONE page image. Copy text exactly as printed. \
+Return only lab_rows. Include every complete analyte result visible on the page, including rows \
+that may have been omitted when label or value fields were incomplete. Do not translate or infer."""
+
+DROPPED_RETRY_USER_PROMPT = (
+    "List every complete laboratory result row visible on this page as lab_rows."
+)
 
 def _date_schema() -> dict:
     return {
@@ -143,6 +155,7 @@ class LlamaVisionClient:
         self.version = (
             f"{MODEL_NAME};weights={component_version('vision')};runtime={runtime};prompt="
             f"{_short_hash([SYSTEM_PROMPT, USER_PROMPT])};schema={_short_hash(SCHEMA)};"
+            f"dropped_retry={_short_hash(DROPPED_RETRY_SYSTEM_PROMPT)};"
             f"temp=0;max_tokens={MAX_OUTPUT_TOKENS}"
         )
         if check_service:
@@ -168,6 +181,13 @@ class LlamaVisionClient:
             raise SetupError(f"MODEL_SERVICE_UNAVAILABLE: {SERVICE_HINT}")
 
     def extract(self, image_png: bytes, *, lab_row_hints=None) -> dict:
+        if lab_row_hints == (DROPPED_LAB_ROWS_HINT,):
+            return self._request(
+                image_png,
+                DROPPED_RETRY_SYSTEM_PROMPT,
+                DROPPED_RETRY_USER_PROMPT,
+                SUPPLEMENT_SCHEMA,
+            )
         if lab_row_hints:
             return self._request(
                 image_png,

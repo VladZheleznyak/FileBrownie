@@ -141,6 +141,12 @@ class LabGrounding:
 
 _UNIT_LIKE = re.compile(r"(?:[a-zа-яіїєґµμ%]+[a-zа-яіїєґ0-9^*]*/[a-zа-яіїєґ0-9^*.]+)|%")
 _INTERVAL = re.compile(r"\d+(?:\.\d+)?\s*[-–—]\s*\d+(?:\.\d+)?")
+_PANEL_ROW = re.compile(
+    r"\b(?:your\s+result|test\s+status|reference\s+range|reference\s+interval)\b",
+    re.IGNORECASE,
+)
+_MAX_LAB_ROW_LEN = 120
+_MAX_PANEL_ROW_LEN = 260
 # Two-character comparators and an explicit sign are part of the result token.
 # A following digit must not match on its own inside <=5, +2, or −5.
 _STANDALONE_NUMBER = re.compile(r"(?<![\w.])(?:<=|>=|<|>|≤|≥)?[+\-]?\d+(?:\.\d+)?(?![\w.])")
@@ -185,11 +191,18 @@ def _has_result_number(text: str) -> bool:
 def looks_like_lab_row(row: Row) -> bool:
     """Heuristic for a laboratory table row: label, a standalone value, and a unit or interval."""
     text = row.text
-    if len(text) > 120:
+    panel = _PANEL_ROW.search(text) is not None
+    if len(text) > (_MAX_PANEL_ROW_LEN if panel else _MAX_LAB_ROW_LEN):
         return False
     interval_match = _INTERVAL.search(text)
     has_interval = interval_match is not None
     stripped = _INTERVAL.sub(" ", text)
+    if panel:
+        if not _has_result_number(stripped):
+            return False
+        if _UNIT_LIKE.search(stripped) is not None:
+            return True
+        return has_interval
     if not re.match(r"^\W*[^\W\d_]{3,}", stripped):
         return False
     if not _has_result_number(stripped):
@@ -396,6 +409,9 @@ def supplemental_lab_row_hints(page: PageText, covered: set[int]) -> tuple[str, 
         text = row.text
         folded = text.casefold()
         if not re.search(r"\d", text):
+            continue
+        if _PANEL_ROW.search(text):
+            hints.append(text)
             continue
         if "ferritin" in folded or "ферритин" in folded or "феритин" in folded:
             hints.append(text)
