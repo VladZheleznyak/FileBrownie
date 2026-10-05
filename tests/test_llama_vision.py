@@ -44,6 +44,8 @@ class Stub:
                 self.wfile.write(body)
 
         self.server = HTTPServer(("127.0.0.1", 0), Handler)
+        # Short poll interval so shutdown() does not block teardown for a full socket timeout.
+        self.server.timeout = 0.01
         self.url = f"http://127.0.0.1:{self.server.server_port}"
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
 

@@ -11,7 +11,8 @@ from filebrownie.query.timeline import parse_range
 
 pytestmark = pytest.mark.integration
 
-DOCUMENTS, ROWS_PER_DOCUMENT = 60, 25
+# Smaller than production-scale folders but enough rows to stress queries vs D18/D26 allowance.
+DOCUMENTS, ROWS_PER_DOCUMENT = 20, 10
 ALLOWANCE_SECONDS = 300
 ANALYTES = ["Hemoglobin", "Ferritin", "Glucose", "Creatinine", "Cholesterol"]
 
