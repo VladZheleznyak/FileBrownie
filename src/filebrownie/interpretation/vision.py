@@ -115,6 +115,32 @@ def _list(value, limit: int) -> list:
     return value
 
 
+_PLACEHOLDER_VALUES = frozenset(
+    {
+        "-",
+        "—",
+        "–",
+        "na",
+        "n/a",
+        "pending",
+        "cancelled",
+        "canceled",
+        "x",
+        "xx",
+        "xxx",
+        "tbd",
+        "none",
+    }
+)
+
+
+def _is_placeholder_lab_value(value: str) -> bool:
+    token = value.casefold().strip()
+    if not token:
+        return True
+    return token in _PLACEHOLDER_VALUES
+
+
 def _dates(value) -> tuple[VisionDate, ...]:
     result = []
     for item in _list(value, MAX_DATES):
@@ -142,6 +168,9 @@ def parse_page(data: dict) -> VisionPage:
         label, value = _text(item.get("label")), _text(item.get("value"))
         if not label or not value:
             dropped += bool(label or value)  # an all-empty item is a placeholder, not a loss
+            continue
+        if _is_placeholder_lab_value(value):
+            dropped += 1
             continue
         rows.append(
             VisionLabRow(

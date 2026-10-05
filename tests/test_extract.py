@@ -649,6 +649,10 @@ def test_placeholder_items_are_ignored_and_partial_items_are_counted():
         {"lab_rows": [{"label": "Ferritin", "value": ""}], "events": [{"specialty": ""}]}
     )
     assert not page.lab_rows and page.dropped == 1
+    page = parse_page({"lab_rows": [{"label": "ferritin", "value": "X"}]})
+    assert not page.lab_rows and page.dropped == 1
+    page = parse_page({"lab_rows": [{"label": "Ferritin", "value": "pending"}]})
+    assert not page.lab_rows and page.dropped == 1
 
 
 def test_specimen_the_page_never_states_is_discarded_without_demoting_the_reading():
