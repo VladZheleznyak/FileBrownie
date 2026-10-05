@@ -334,7 +334,10 @@ def full_scan() -> int:
                 return 0
             print(f"Generation stays staged ({result.reason}); the previous index is unchanged.")
             show_findings(result.findings)
-            print("Review the findings, then run: activate <generation> --force")
+            print(
+                "Review the findings, then run: "
+                f"activate {outcome.generation_id} --force"
+            )
             return 1
     except provisioning.SetupError as error:
         _log_failure("scan", error)
