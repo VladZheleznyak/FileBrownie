@@ -12,10 +12,29 @@ from filebrownie.evidence.models import DocumentEvidence, ProcessingStatus, Text
 
 MAX_PAGES = 200
 MAX_PAGE_PIXELS = 8_000_000
+MAX_OPEN_PIXELS = 50_000_000
 MAX_TOTAL_PIXELS = 100_000_000
 MAX_ARTIFACT_BYTES = 256 * 1024 * 1024
 MAX_MANIFEST_BYTES = 16 * 1024 * 1024
 DPI = 150
+MIN_PDF_DPI = 72
+_PDF_DPI_STEPS = (150, 100, 75, MIN_PDF_DPI)
+
+
+def _fit_within_pixels(width: int, height: int, max_pixels: int) -> tuple[int, int]:
+    if width * height <= max_pixels:
+        return width, height
+    scale = math.sqrt(max_pixels / (width * height))
+    new_w = max(1, int(width * scale))
+    new_h = max(1, int(height * scale))
+    while new_w * new_h > max_pixels:
+        if new_w >= new_h and new_w > 1:
+            new_w -= 1
+        elif new_h > 1:
+            new_h -= 1
+        else:
+            break
+    return new_w, new_h
 
 
 def _save(directory: Path, result: DocumentEvidence) -> None:
@@ -58,11 +77,11 @@ def _quality_warning(spans: tuple[TextSpan, ...]) -> str | None:
     return None
 
 
-def _pdf_page(document, number: int, directory: Path) -> UnitEvidence:
+def _pdf_page(document, number: int, directory: Path, dpi: int = DPI) -> UnitEvidence:
     import pymupdf
 
     page = document.load_page(number - 1)
-    scale = DPI / 72
+    scale = dpi / 72
     width, height = page.rect.width * scale, page.rect.height * scale
     if not all(math.isfinite(value) and value > 0 for value in (width, height)):
         return UnitEvidence(number, ProcessingStatus.FAILED, ("INVALID_PAGE_GEOMETRY",))
@@ -130,17 +149,27 @@ def _read_pdf(directory: Path) -> None:
         pixels = 0
         artifact_bytes = 0
         for number in range(1, min(page_count, MAX_PAGES) + 1):
-            try:
-                unit = _pdf_page(document, number, directory)
-            except Exception:
+            unit = None
+            raster = None
+            for dpi in _PDF_DPI_STEPS:
                 directory.joinpath(f"pages/{number:06d}.png").unlink(missing_ok=True)
-                unit = UnitEvidence(number, ProcessingStatus.FAILED, ("PDF_PAGE_READ_FAILED",))
-            pixels += (unit.width or 0) * (unit.height or 0)
-            raster = directory / unit.raster if unit.raster else None
-            artifact_bytes += raster.stat().st_size if raster and raster.exists() else 0
-            if pixels > MAX_TOTAL_PIXELS or artifact_bytes > MAX_ARTIFACT_BYTES:
+                try:
+                    unit = _pdf_page(document, number, directory, dpi=dpi)
+                except Exception:
+                    unit = UnitEvidence(number, ProcessingStatus.FAILED, ("PDF_PAGE_READ_FAILED",))
+                if unit.status == ProcessingStatus.FAILED and unit.warnings == ("PAGE_PIXEL_LIMIT",):
+                    continue
+                raster = directory / unit.raster if unit.raster else None
+                page_pixels = (unit.width or 0) * (unit.height or 0)
+                page_bytes = raster.stat().st_size if raster and raster.exists() else 0
+                if (
+                    pixels + page_pixels <= MAX_TOTAL_PIXELS
+                    and artifact_bytes + page_bytes <= MAX_ARTIFACT_BYTES
+                ):
+                    break
                 if raster:
                     raster.unlink(missing_ok=True)
+            else:
                 unit = UnitEvidence(number, ProcessingStatus.SKIPPED, ("DOCUMENT_RESOURCE_LIMIT",))
                 result = replace(
                     result,
@@ -148,6 +177,9 @@ def _read_pdf(directory: Path) -> None:
                     units=(*result.units, unit),
                 )
                 break
+            pixels += (unit.width or 0) * (unit.height or 0)
+            raster = directory / unit.raster if unit.raster else None
+            artifact_bytes += raster.stat().st_size if raster and raster.exists() else 0
             result = replace(result, units=(*result.units, unit))
             _save(directory, _summary(result))
         if page_count > MAX_PAGES:
@@ -158,7 +190,7 @@ def _read_pdf(directory: Path) -> None:
 def _read_jpeg(directory: Path) -> None:
     from PIL import Image, ImageOps
 
-    Image.MAX_IMAGE_PIXELS = MAX_PAGE_PIXELS
+    Image.MAX_IMAGE_PIXELS = MAX_OPEN_PIXELS
     try:
         opened = Image.open(directory / "input")
     except Image.DecompressionBombError:
@@ -171,13 +203,16 @@ def _read_jpeg(directory: Path) -> None:
                 DocumentEvidence(ProcessingStatus.FAILED, ("JPEG_FORMAT_MISMATCH",), None),
             )
             return
-        if image.width * image.height > MAX_PAGE_PIXELS:
+        if image.width * image.height > MAX_OPEN_PIXELS:
             _save(directory, DocumentEvidence(ProcessingStatus.FAILED, ("IMAGE_PIXEL_LIMIT",), 1))
             return
         image.load()
         orientation = image.getexif().get(274, 1)
         normalized = ImageOps.exif_transpose(image).convert("RGB")
         normalized.info.clear()
+        target = _fit_within_pixels(normalized.width, normalized.height, MAX_PAGE_PIXELS)
+        if target != normalized.size:
+            normalized = normalized.resize(target, Image.Resampling.LANCZOS)
         normalized.save(directory / "pages/000001.png")
         warnings = ("OCR_REQUIRED",)
         if orientation != 1:

@@ -49,8 +49,17 @@ def parse_value(raw: str) -> tuple[str | None, str | None, bool]:
     return None, None, not any(character.isdigit() for character in raw)
 
 
-_SPECIMEN_CUES = ("specimen", "collected", "collection", "забор", "взят", "взяті", "зразок")
-_REPORT_CUES = ("report", "issued", "видано", "видан", "результат")
+_SPECIMEN_CUES = (
+    "specimen",
+    "collected",
+    "collection",
+    "drawn",
+    "забор",
+    "взят",
+    "взяті",
+    "зразок",
+)
+_REPORT_CUES = ("report", "issued", "received", "printed", "reported", "видано", "видан", "результат")
 _NEGATION = re.compile(
     r"(?:^|\s)(?:no|not|never|denied|without|neither|nor|не|нет|ні|ни|без|відсут)(?:\s|$)",
     re.IGNORECASE,
@@ -132,6 +141,49 @@ def _date_role_context_text(page: PageText, evidence: tuple[int, ...], date_raw:
     return f"{header.text} {row.text}"
 
 
+def _date_x_center(page: PageText, evidence: tuple[int, ...]) -> float | None:
+    positions = []
+    for index in evidence:
+        bbox = page.spans[index].bbox
+        if bbox is not None:
+            positions.append((bbox[0] + bbox[2]) / 2)
+    if not positions:
+        return None
+    return sum(positions) / len(positions)
+
+
+def _column_aligned_date_role(
+    page: PageText, evidence: tuple[int, ...], date_raw: str
+) -> str | None:
+    """Match a date under a two-column caption by horizontal alignment."""
+    row = _date_row(page, evidence)
+    if row is None or _nearest_lab_date_role_before(row.text, date_raw):
+        return None
+    above = page.above(row)
+    if not above or looks_like_lab_row(above[0]):
+        return None
+    header = above[0]
+    date_x = _date_x_center(page, evidence)
+    if date_x is None:
+        return None
+    best_role: str | None = None
+    best_distance = float("inf")
+    for role, cues in (("specimen", _SPECIMEN_CUES), ("report", _REPORT_CUES)):
+        for index in header.indices:
+            text = page.normalized[index]
+            if not any(cue in text for cue in cues):
+                continue
+            bbox = page.spans[index].bbox
+            if bbox is None:
+                continue
+            cue_x = (bbox[0] + bbox[2]) / 2
+            distance = abs(cue_x - date_x)
+            if distance < best_distance:
+                best_distance = distance
+                best_role = role
+    return best_role
+
+
 def _nearest_lab_date_role_before(row_text: str, date_raw: str) -> str | None:
     """Role cue closest to the left of the located date in the caption context, if any."""
     date_n = clean(date_raw)
@@ -160,12 +212,19 @@ def _supported_date_role(page: PageText, claim: VisionDate, evidence: tuple[int,
     row = _date_row(page, evidence)
     if row is None:
         return "unsupported"
-    text = _date_role_context_text(page, evidence, claim.raw)
     if claim.role in ("specimen", "report"):
+        on_row = _nearest_lab_date_role_before(row.text, claim.raw)
+        if on_row is not None:
+            return claim.role if on_row == claim.role else "unsupported"
+        aligned = _column_aligned_date_role(page, evidence, claim.raw)
+        if aligned is not None:
+            return claim.role if aligned == claim.role else "unsupported"
+        text = _date_role_context_text(page, evidence, claim.raw)
         nearest = _nearest_lab_date_role_before(text, claim.raw)
         if nearest != claim.role:
             return "unsupported"
         return claim.role
+    text = _date_role_context_text(page, evidence, claim.raw)
     if claim.role == "event":
         if _nearest_lab_date_role_before(text, claim.raw) is not None:
             return "unsupported"

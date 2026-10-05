@@ -16,7 +16,7 @@ class FakeVision:
         self.output = output if output is not None else {}
         self.calls = 0
 
-    def extract(self, image_png: bytes) -> dict:
+    def extract(self, image_png: bytes, *, lab_row_hints=None) -> dict:
         self.calls += 1
         output = self.output
         if isinstance(output, list):  # one output per call, in document order

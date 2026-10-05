@@ -83,6 +83,17 @@ def test_blank_pdf_page_keeps_successful_page_and_requires_ocr(folders):
     assert result.units[1].raster is not None
 
 
+def test_oversized_jpeg_is_downscaled_instead_of_rejected(folders):
+    source, data = folders
+    Image.new("RGB", (4000, 3000), "white").save(source / "large.jpg", quality=85)
+    result = read_source(folders, "large.jpg")
+    (unit,) = result.evidence.units
+    assert result.evidence.status == ProcessingStatus.PARTIAL
+    assert unit.width * unit.height <= worker.MAX_PAGE_PIXELS
+    assert unit.raster is not None
+    assert (data / "evidence" / result.reference / unit.raster).exists()
+
+
 def test_jpeg_orientation_is_normalized_without_claiming_text(folders):
     source, data = folders
     exif = Image.Exif()
@@ -241,6 +252,19 @@ def test_pdf_page_limit_reports_unread_coverage(tmp_path, monkeypatch):
     assert result.page_count == 2
     assert len(result.units) == 1
     assert result.warnings == ("DOCUMENT_PAGE_LIMIT",)
+
+
+def test_pdf_continues_at_lower_dpi_when_pixel_budget_is_tight(tmp_path, monkeypatch):
+    directory = tmp_path / "job"
+    directory.mkdir()
+    directory.joinpath("pages").mkdir()
+    make_pdf(directory / "input", ["Synthetic page one", "Synthetic page two"])
+    monkeypatch.setattr(worker, "MAX_TOTAL_PIXELS", 500_000)
+    worker._read_pdf(directory)
+    result = readers._load_result(directory)
+    assert result.status == ProcessingStatus.COMPLETED
+    assert len(result.units) == 2
+    assert all(unit.status != ProcessingStatus.SKIPPED for unit in result.units)
 
 
 def test_pdf_pixel_limit_is_a_failed_unit(tmp_path, monkeypatch):

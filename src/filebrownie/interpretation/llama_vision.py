@@ -57,6 +57,10 @@ items)."""
 
 USER_PROMPT = "Extract the structured data from this page."
 
+SUPPLEMENT_SYSTEM_PROMPT = """\
+You extract laboratory result rows from ONE page image. Copy text exactly as printed. \
+Return only lab_rows for the printed row texts listed in the user message. Omit rows not listed. \
+Do not translate or infer."""
 
 def _date_schema() -> dict:
     return {
@@ -113,6 +117,14 @@ SCHEMA = {
     "required": ["document_class", "handwriting", "context_missing", "dates", "lab_rows", "events"],
 }
 
+SUPPLEMENT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "lab_rows": SCHEMA["properties"]["lab_rows"],
+    },
+    "required": ["lab_rows"],
+}
+
 
 def _short_hash(value: object) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()[:8]
@@ -155,11 +167,22 @@ class LlamaVisionClient:
         if not ready:
             raise SetupError(f"MODEL_SERVICE_UNAVAILABLE: {SERVICE_HINT}")
 
-    def extract(self, image_png: bytes) -> dict:
+    def extract(self, image_png: bytes, *, lab_row_hints=None) -> dict:
+        if lab_row_hints:
+            return self._request(
+                image_png,
+                SUPPLEMENT_SYSTEM_PROMPT,
+                "Extract lab_rows for these printed rows only:\n"
+                + "\n".join(f"- {line}" for line in lab_row_hints),
+                SUPPLEMENT_SCHEMA,
+            )
+        return self._request(image_png, SYSTEM_PROMPT, USER_PROMPT, SCHEMA)
+
+    def _request(self, image_png: bytes, system_prompt: str, user_text: str, schema: dict) -> dict:
         body = json.dumps(
             {
                 "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": system_prompt},
                     {
                         "role": "user",
                         "content": [
@@ -170,7 +193,7 @@ class LlamaVisionClient:
                                     + base64.b64encode(image_png).decode("ascii")
                                 },
                             },
-                            {"type": "text", "text": USER_PROMPT},
+                            {"type": "text", "text": user_text},
                         ],
                     },
                 ],
@@ -180,7 +203,7 @@ class LlamaVisionClient:
                 "stream": False,
                 "response_format": {
                     "type": "json_schema",
-                    "json_schema": {"name": "page", "strict": True, "schema": SCHEMA},
+                    "json_schema": {"name": "page", "strict": True, "schema": schema},
                 },
             }
         )

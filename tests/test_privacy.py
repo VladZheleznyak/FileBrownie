@@ -28,7 +28,7 @@ class LeakyOcr:
 class LeakyVision:
     version = "leaky-vision"
 
-    def extract(self, image_png):
+    def extract(self, image_png, *, lab_row_hints=None):
         raise ValueError(f"model said {SENTINEL}")
 
 

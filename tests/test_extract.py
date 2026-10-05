@@ -281,6 +281,57 @@ def test_lab_date_role_uses_caption_row_above_split_date_span():
     assert fact.timeline.role == "specimen"
 
 
+def test_integer_result_with_trailing_period_verifies():
+    spans = row(80, [(10, "FERRITIN"), (150, "186."), (230, "22 - 537"), (320, "ug/L")])
+    page = page_of(
+        lab_rows=[lab("FERRITIN", "186", unit="ug/L", reference_interval="22 - 537")],
+    )
+    (fact,) = interpret_page(spans, page).lab_facts
+    assert fact.verification == "verified"
+    assert fact.value_number == "186"
+
+
+def test_two_column_header_assigns_specimen_and_report_dates():
+    spans = (
+        row(20, [(10, "Collected"), (220, "Reported")])
+        + row(40, [(10, "2025 Jul 04, 07:00"), (220, "2025 Aug 20, 21:02")])
+        + row(80, [(10, "FERRITIN"), (150, "147"), (230, "ug/L")])
+    )
+    page = page_of(
+        lab_rows=[lab("FERRITIN", "147", unit="ug/L")],
+        dates=[
+            {"raw": "2025 Jul 04, 07:00", "role": "specimen"},
+            {"raw": "2025 Aug 20, 21:02", "role": "report"},
+        ],
+    )
+    (fact,) = interpret_page(spans, page).lab_facts
+    assert fact.timeline.role == "specimen"
+    roles = {item.raw: item.role_supported for item in fact.dates}
+    assert roles["2025 Jul 04, 07:00"] and roles["2025 Aug 20, 21:02"]
+
+
+def test_split_date_wording_locates_for_timeline():
+    spans = (
+        row(20, [(10, "Specimen collected:")])
+        + row(40, [(10, "2023 May 04,"), (140, "17:45")])
+        + row(80, [(10, "FERRITIN"), (150, "186"), (230, "ug/L")])
+    )
+    page = page_of(
+        lab_rows=[lab("FERRITIN", "186", unit="ug/L")],
+        dates=[{"raw": "2023 May 04, 17:45", "role": "specimen"}],
+    )
+    (fact,) = interpret_page(spans, page).lab_facts
+    assert "DATE_NOT_LOCATED" not in fact.notes
+    assert fact.timeline.role == "specimen"
+
+
+def test_ocr_damaged_unit_alias_still_verifies():
+    spans = row(80, [(10, "FERRITIN"), (150, "171"), (230, "ugn.")])
+    page = page_of(lab_rows=[lab("Ferritin", "171", unit="ug/L")])
+    (fact,) = interpret_page(spans, page).lab_facts
+    assert fact.verification == "verified"
+
+
 def test_lab_date_role_uses_nearest_cue_to_the_left():
     spans = row(
         20,

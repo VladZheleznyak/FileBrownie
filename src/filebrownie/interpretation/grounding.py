@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 from filebrownie.evidence.models import TextSpan
 from filebrownie.evidence.normalize import contains_token, fold_signs, normalize
+from filebrownie.interpretation.dates import parse_date
 
 _COMPARATOR_GAP = re.compile(r"([<>≤≥]=?)\s+(?=[+\-]?\d)")
 _EDGE = " :;,.|"
@@ -103,6 +104,29 @@ class PageText:
         needle = clean(needle)
         for row in self.rows_with(needle):
             return self.refs(row, needle)
+        return self._locate_by_calendar(needle)
+
+    def _locate_by_calendar(self, raw: str) -> tuple[int, ...]:
+        targets = set(parse_date(raw))
+        if not targets:
+            return ()
+        matches: list[tuple[int, ...]] = []
+        for row in self.rows:
+            candidates: list[tuple[str, tuple[int, ...]]] = [
+                (row.text, row.indices),
+                *[(self.normalized[index], (index,)) for index in row.indices if self.normalized[index]],
+            ]
+            if len(row.indices) > 1:
+                joined = clean(" ".join(self.spans[index].text for index in row.indices))
+                candidates.append((joined, row.indices))
+            for text, indices in candidates:
+                if not text:
+                    continue
+                if targets & set(parse_date(text)):
+                    matches.append(tuple(indices))
+        unique = {tuple(sorted(indices)) for indices in matches}
+        if len(unique) == 1:
+            return unique.pop()
         return ()
 
 
@@ -120,6 +144,25 @@ _INTERVAL = re.compile(r"\d+(?:\.\d+)?\s*[-–—]\s*\d+(?:\.\d+)?")
 # Two-character comparators and an explicit sign are part of the result token.
 # A following digit must not match on its own inside <=5, +2, or −5.
 _STANDALONE_NUMBER = re.compile(r"(?<![\w.])(?:<=|>=|<|>|≤|≥)?[+\-]?\d+(?:\.\d+)?(?![\w.])")
+_INTEGER_TRAILING_PERIOD = re.compile(r"^\d+\.$")
+_UNIT_CLAIM_ALIASES: dict[str, tuple[str, ...]] = {
+    "ug/l": ("ugn", "ug/l", "µg/l", "mcg/l"),
+}
+
+
+def _normalize_located_result(token: str) -> str:
+    if _INTEGER_TRAILING_PERIOD.match(token):
+        return token[:-1]
+    return token
+
+
+def _row_contains_token(row_text: str, needle: str) -> bool:
+    if contains_token(row_text, needle):
+        return True
+    for alias in _UNIT_CLAIM_ALIASES.get(needle, ()):
+        if contains_token(row_text, alias):
+            return True
+    return False
 
 
 def looks_like_lab_row(row: Row) -> bool:
@@ -149,7 +192,7 @@ def _first_result_token(text: str) -> str | None:
     match = _STANDALONE_NUMBER.search(stripped)
     if not match:
         return None
-    return clean(match.group(0))
+    return _normalize_located_result(clean(match.group(0)))
 
 
 _REFERENCE_FIELD = re.compile(
@@ -201,7 +244,7 @@ def _header_rows_above(page: PageText, row: Row) -> list[Row]:
 def _inherit_field(
     page: PageText, row: Row, needle: str, *, from_header: bool
 ) -> tuple[Row, str] | None:
-    if contains_token(row.text, needle):
+    if _row_contains_token(row.text, needle):
         return (row, needle)
     # A unit already written on the result row is the result unit. A different unit in a
     # header must not replace it. Specimen text is still taken from a header when the row
@@ -210,7 +253,7 @@ def _inherit_field(
         return None
     headers = _header_rows_above(page, row)
     return next(
-        ((header, needle) for header in headers if contains_token(header.text, needle)),
+        ((header, needle) for header in headers if _row_contains_token(header.text, needle)),
         None,
     )
 

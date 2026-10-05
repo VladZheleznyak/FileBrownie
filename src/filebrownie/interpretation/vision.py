@@ -3,6 +3,7 @@
 The model output is a claim to be grounded in located text, never evidence by itself.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -44,7 +45,7 @@ class VisionClient(Protocol):
 
     version: str
 
-    def extract(self, image_png: bytes) -> dict: ...
+    def extract(self, image_png: bytes, *, lab_row_hints: Sequence[str] | None = None) -> dict: ...
 
 
 @dataclass(frozen=True)
@@ -180,4 +181,17 @@ def parse_page(data: dict) -> VisionPage:
         tuple(rows),
         tuple(events),
         dropped,
+    )
+
+
+def merge_vision_lab_rows(base: VisionPage, extra: VisionPage) -> VisionPage:
+    """Append supplemental lab rows while keeping the first page's other fields."""
+    return VisionPage(
+        base.document_class,
+        base.handwriting or extra.handwriting,
+        base.context_missing or extra.context_missing,
+        base.dates,
+        (*base.lab_rows, *extra.lab_rows),
+        base.events,
+        base.dropped + extra.dropped,
     )

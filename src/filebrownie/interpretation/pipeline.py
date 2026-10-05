@@ -18,7 +18,13 @@ from filebrownie.evidence.ocr import OcrEngine, OcrError
 from filebrownie.evidence.worker import MAX_ARTIFACT_BYTES
 from filebrownie.ingestion.progress import ProgressFn, ScanProgress
 from filebrownie.interpretation.extract import interpret_page
-from filebrownie.interpretation.vision import VisionClient, VisionError, parse_page
+from filebrownie.interpretation.grounding import PageText, uncovered_lab_rows
+from filebrownie.interpretation.vision import (
+    VisionClient,
+    VisionError,
+    merge_vision_lab_rows,
+    parse_page,
+)
 from filebrownie.storage.facts import UnitRecord, step_cache_key
 
 _NEEDS_OCR = {"OCR_REQUIRED", "TEXT_LAYER_LOW_QUALITY"}
@@ -173,6 +179,62 @@ def _process_unit(
             failures.append(str(error) if str(error).startswith("VISION_") else "VISION_FAILED")
         else:
             interpretation = interpret_page(spans, page)
+            page_text = PageText.build(spans)
+            covered = {
+                index
+                for fact in interpretation.lab_facts
+                for index in (*fact.evidence, *fact.alternative_evidence)
+            }
+            hints = tuple(row.text for row in uncovered_lab_rows(page_text, covered))
+            if hints:
+                supplement_version = f"{vision.version};supplement={hashlib.sha256('|'.join(hints).encode()).hexdigest()[:8]}"
+
+                def supplement() -> dict:
+                    try:
+                        claimed = vision.extract(image, lab_row_hints=hints)
+                        parse_page(
+                            {
+                                "document_class": page.document_class,
+                                "handwriting": page.handwriting,
+                                "context_missing": page.context_missing,
+                                "dates": [],
+                                "lab_rows": claimed.get("lab_rows", []),
+                                "events": [],
+                            }
+                        )
+                    except VisionError:
+                        raise
+                    except Exception:
+                        raise VisionError("VISION_FAILED") from None
+                    return {"page": claimed}
+
+                try:
+                    extra_payload = _run_cached(
+                        repository,
+                        "vision-supplement",
+                        content_hash,
+                        format,
+                        unit.number,
+                        raster_hash,
+                        supplement_version,
+                        supplement,
+                        lambda cached: cached["page"],
+                        lambda hit: _step(progress, page_count, unit.number, "vision", hit),
+                    )
+                    extra = parse_page(
+                        {
+                            "document_class": page.document_class,
+                            "handwriting": False,
+                            "context_missing": False,
+                            "dates": [],
+                            "lab_rows": extra_payload["page"].get("lab_rows", []),
+                            "events": [],
+                        }
+                    )
+                    page = merge_vision_lab_rows(page, extra)
+                    interpretation = interpret_page(spans, page)
+                except VisionError:
+                    pass
     if interpretation is not None:
         warnings.extend(item.code for item in interpretation.warnings)
     warnings.extend(failures)

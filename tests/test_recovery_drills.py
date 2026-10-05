@@ -27,7 +27,7 @@ def document(source, name, value):
 
 
 class InterruptingVision(FakeVision):
-    def extract(self, image_png):
+    def extract(self, image_png, *, lab_row_hints=None):
         self.calls += 1
         if self.calls == 1:  # a.pdf is cached, so this is b.pdf
             raise KeyboardInterrupt

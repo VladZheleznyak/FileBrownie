@@ -53,6 +53,8 @@ _DAY_MONTH_YEAR = re.compile(rf"(?<!\d)(\d{{1,2}})(?:st|nd|rd|th)?\s+({_WORD})\.
 _MONTH_DAY_YEAR = re.compile(rf"({_WORD})\.?\s+(\d{{1,2}})(?:st|nd|rd|th)?,?\s+(\d{{4}})")
 _MONTH_YEAR = re.compile(rf"({_WORD})\.?\s+(\d{{4}})")
 _NUMERIC_MONTH_YEAR = re.compile(r"(?<![\d./-])(\d{1,2})[./](\d{4})(?!\d)")
+_YEAR_MONTH_DAY = re.compile(rf"(?<!\d)(\d{{4}})\s+({_WORD})\.?\s+(\d{{1,2}})(?:st|nd|rd|th)?(?!\d)")
+_TRAILING_CLOCK = re.compile(r",\s*\d{1,2}:\d{2}(?::\d{2})?\s*$")
 _YEAR = re.compile(r"^\D*(\d{4})\D*$")
 
 
@@ -100,6 +102,7 @@ def parse_date(raw: str) -> tuple[DateValue, ...]:
     readings. Dotted dates are read day-first, as is usual in the source documents.
     """
     text = normalize(raw)
+    text = _TRAILING_CLOCK.sub("", text.strip())
     if match := _ISO.search(text):
         return _unique([_day(int(match[1]), int(match[2]), int(match[3]))])
     if match := _NUMERIC.search(text):
@@ -119,6 +122,10 @@ def parse_date(raw: str) -> tuple[DateValue, ...]:
         month = _month(match[1])
         if month:
             return _unique([_day(int(match[3]), month, int(match[2]))])
+    if match := _YEAR_MONTH_DAY.search(text):
+        month = _month(match[2])
+        if month:
+            return _unique([_day(int(match[1]), month, int(match[3]))])
     if match := _MONTH_YEAR.search(text):
         month = _month(match[1])
         if month:
