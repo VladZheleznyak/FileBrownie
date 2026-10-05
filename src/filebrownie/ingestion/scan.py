@@ -16,6 +16,7 @@ from filebrownie.evidence.models import DocumentEvidence, ProcessingStatus
 from filebrownie.evidence.network import ensure_isolated_network, ensure_no_outbound
 from filebrownie.evidence.ocr import OcrEngine
 from filebrownie.evidence.readers import ReaderError, read_document
+from filebrownie.ingestion.consistency import InventoryDifference
 from filebrownie.ingestion.discovery import DiscoveryStatus, discover_sources
 from filebrownie.ingestion.progress import ProgressFn, ScanProgress
 from filebrownie.interpretation.pipeline import process_content
@@ -57,7 +58,7 @@ def scan_sources(
     ocr: OcrEngine | None = None,
     vision: VisionClient | None = None,
     progress: ProgressFn | None = None,
-) -> UUID:
+) -> tuple[UUID, InventoryDifference]:
     """The caller must hold the shared application lock throughout this operation."""
     ensure_isolated_network()
     if kind == "scan":
@@ -80,6 +81,7 @@ def scan_sources(
             skipped=sum(record.status == DiscoveryStatus.SKIPPED for record in inventory.records),
             failed=sum(record.status == DiscoveryStatus.FAILED for record in inventory.records),
             unique=len(work),
+            ready=inventory.ready_file_count,
             formats=tuple(record.format.value for record, _identity, _copies in work),
         )
         configuration = reader_fingerprint()
@@ -168,8 +170,8 @@ def scan_sources(
             _report(progress, stage="mappings")
             repository.propose_mappings(generation_id)
         _report(progress, stage="recheck")
-        repository.finish_scan(generation_id, discover_sources(source))
-        return generation_id
+        difference = repository.finish_scan(generation_id, discover_sources(source))
+        return generation_id, difference
     except BaseException:
         repository.interrupt(generation_id)
         raise
@@ -180,6 +182,7 @@ class ScanOutcome:
     generation_id: UUID
     activation: ActivationResult | None
     blocked: str | None = None
+    inventory_difference: InventoryDifference | None = None
 
 
 def run_full_scan(
@@ -191,14 +194,17 @@ def run_full_scan(
     progress: ProgressFn | None = None,
 ) -> ScanOutcome:
     """Full scan followed by automatic activation under the guard (D10, D35, D42)."""
-    generation_id = scan_sources(repository, source, data, "scan", ocr, vision, progress)
+    generation_id, difference = scan_sources(repository, source, data, "scan", ocr, vision, progress)
     generation = next(item for item in repository.generations() if item.id == generation_id)
     if generation.state != "staged":
-        return ScanOutcome(generation_id, None, generation.reason)
+        return ScanOutcome(generation_id, None, generation.reason, difference)
     try:
         _report(progress, stage="activate")
         return ScanOutcome(
-            generation_id, repository.activate(generation_id, discover_sources(source))
+            generation_id,
+            repository.activate(generation_id, discover_sources(source)),
+            None,
+            difference,
         )
     except DatabaseError as error:
-        return ScanOutcome(generation_id, None, str(error))
+        return ScanOutcome(generation_id, None, str(error), difference)

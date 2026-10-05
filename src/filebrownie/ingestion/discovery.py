@@ -11,6 +11,9 @@ from pathlib import Path
 CHUNK_SIZE = 1024 * 1024
 MAX_DIRECTORY_DEPTH = 64
 
+_STAT_FIELD_NAMES = ("device", "inode", "mode", "size", "mtime_ns", "ctime_ns")
+_VOLATILE_STAT_FIELDS = frozenset({"mtime_ns", "ctime_ns"})
+
 
 class SourceFormat(StrEnum):
     PDF = "pdf"
@@ -47,6 +50,15 @@ class SourceInventory:
     def unsupported_file_count(self) -> int:
         return sum(record.kind == "file" and record.format is None for record in self.records)
 
+    @property
+    def ready_file_count(self) -> int:
+        return sum(
+            record.kind == "file"
+            and record.status == DiscoveryStatus.READY
+            and record.content_hash is not None
+            for record in self.records
+        )
+
     def content_sources(self) -> dict[str, tuple[str, ...]]:
         """Retain every path for identical bytes; no medical interpretation occurs."""
         groups: dict[str, list[str]] = {}
@@ -61,7 +73,11 @@ class InventoryError(Exception):
 
 
 class SourceChangedError(Exception):
-    pass
+    """File or directory identity changed during discovery."""
+
+    def __init__(self, fields: tuple[str, ...] = ()) -> None:
+        self.fields = fields
+        super().__init__()
 
 
 def source_format(name: str) -> SourceFormat | None:
@@ -85,22 +101,78 @@ def _signature(metadata: os.stat_result) -> tuple[int, ...]:
     )
 
 
-def _fingerprint(directory_fd: int, name: str, initial: os.stat_result) -> str:
+def describe_stat_changes(before: os.stat_result, after: os.stat_result) -> tuple[str, ...]:
+    """Human-readable field deltas for CLI output; never includes paths."""
+    changes: list[str] = []
+    for name, left, right in zip(
+        _STAT_FIELD_NAMES, _signature(before), _signature(after), strict=True
+    ):
+        if left == right:
+            continue
+        if name in _VOLATILE_STAT_FIELDS:
+            changes.append(f"{name} {left}->{right}")
+        elif name == "size":
+            changes.append(f"size {left}->{right}")
+        else:
+            changes.append(name)
+    return tuple(changes)
+
+
+def _fields_warning(fields: tuple[str, ...]) -> tuple[str, ...]:
+    if not fields:
+        return ("SOURCE_CHANGED",)
+    return ("SOURCE_CHANGED", f"fields: {', '.join(fields)}")
+
+
+def _require_file_identity(initial: os.stat_result, current: os.stat_result) -> None:
+    """Reject identity or content-size changes; allow timestamp-only drift (shared drives)."""
+    fields = describe_stat_changes(initial, current)
+    blocking = tuple(
+        item
+        for item in fields
+        if not item.startswith("mtime_ns") and not item.startswith("ctime_ns")
+    )
+    if blocking:
+        raise SourceChangedError(blocking)
+
+
+def _require_directory_identity(initial: os.stat_result, current: os.stat_result) -> None:
+    fields = describe_stat_changes(initial, current)
+    blocking = tuple(
+        item
+        for item in fields
+        if not item.startswith("mtime_ns") and not item.startswith("ctime_ns")
+    )
+    if blocking:
+        raise SourceChangedError(blocking)
+
+
+def _fingerprint(directory_fd: int, name: str, initial: os.stat_result) -> tuple[str, tuple[str, ...]]:
     # A directory descriptor prevents parent-directory replacement redirecting reads.
     # NOFOLLOW rejects a swapped symlink; NONBLOCK prevents a swapped FIFO from hanging.
     descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory_fd)
+    touched: tuple[str, ...] = ()
     with os.fdopen(descriptor, "rb") as stream:
-        before = os.fstat(stream.fileno())
-        if not stat.S_ISREG(before.st_mode) or _signature(before) != _signature(initial):
-            raise SourceChangedError
+        opened = os.fstat(stream.fileno())
+        if not stat.S_ISREG(opened.st_mode):
+            raise SourceChangedError(("mode",))
+        _require_file_identity(initial, opened)
         digest = hashlib.sha256()
+        size_before = opened.st_size
         while chunk := stream.read(CHUNK_SIZE):
             digest.update(chunk)
         after = os.fstat(stream.fileno())
+        if after.st_size != size_before:
+            raise SourceChangedError((f"size {size_before}->{after.st_size}",))
         current = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
-        if _signature(before) != _signature(after) or _signature(after) != _signature(current):
-            raise SourceChangedError
-    return digest.hexdigest()
+        _require_file_identity(opened, current)
+        volatile = describe_stat_changes(opened, after) + describe_stat_changes(after, current)
+        touched = tuple(
+            item
+            for item in volatile
+            if item.startswith("mtime_ns") or item.startswith("ctime_ns")
+        )
+    return digest.hexdigest(), touched
 
 
 def discover_sources(root: Path) -> SourceInventory:
@@ -111,8 +183,16 @@ def discover_sources(root: Path) -> SourceInventory:
     """
     records: list[SourceRecord] = []
 
-    def failure(path: str, kind: str, code: str, format: SourceFormat | None = None) -> None:
-        records.append(SourceRecord(path, kind, format, DiscoveryStatus.FAILED, warnings=(code,)))
+    def failure(
+        path: str,
+        kind: str,
+        code: str,
+        format: SourceFormat | None = None,
+        *,
+        fields: tuple[str, ...] = (),
+    ) -> None:
+        warnings = (code,) if code != "SOURCE_CHANGED" else _fields_warning(fields)
+        records.append(SourceRecord(path, kind, format, DiscoveryStatus.FAILED, warnings=warnings))
 
     def walk(directory_fd: int, relative: Path, depth: int) -> None:
         try:
@@ -151,8 +231,10 @@ def discover_sources(root: Path) -> SourceInventory:
                     failure(label, "directory", "DIRECTORY_UNREADABLE")
                     continue
                 try:
-                    if _signature(os.fstat(child_fd)) != _signature(metadata):
-                        failure(label, "directory", "SOURCE_CHANGED")
+                    try:
+                        _require_directory_identity(metadata, os.fstat(child_fd))
+                    except SourceChangedError as error:
+                        failure(label, "directory", "SOURCE_CHANGED", fields=error.fields)
                     else:
                         walk(child_fd, path, depth + 1)
                 finally:
@@ -160,14 +242,19 @@ def discover_sources(root: Path) -> SourceInventory:
             elif stat.S_ISREG(metadata.st_mode):
                 format = source_format(name)
                 try:
-                    digest = _fingerprint(directory_fd, name, metadata)
-                except SourceChangedError:
-                    failure(label, "file", "SOURCE_CHANGED", format)
+                    digest, touched = _fingerprint(directory_fd, name, metadata)
+                except SourceChangedError as error:
+                    failure(label, "file", "SOURCE_CHANGED", format, fields=error.fields)
                 except OSError:
                     failure(label, "file", "SOURCE_UNREADABLE", format)
                 else:
                     status = DiscoveryStatus.READY if format else DiscoveryStatus.UNSUPPORTED
-                    records.append(SourceRecord(label, "file", format, status, digest))
+                    warnings: tuple[str, ...] = ()
+                    if touched:
+                        warnings = ("METADATA_TOUCHED", f"fields: {', '.join(touched)}")
+                    records.append(
+                        SourceRecord(label, "file", format, status, digest, warnings)
+                    )
             else:
                 records.append(
                     SourceRecord(

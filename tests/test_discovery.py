@@ -1,5 +1,6 @@
 import hashlib
 import os
+import stat
 
 import pytest
 
@@ -78,7 +79,8 @@ def test_changed_file_has_no_usable_fingerprint(tmp_path, monkeypatch):
     (record,) = discover_sources(tmp_path).records
     assert record.status == DiscoveryStatus.FAILED
     assert record.content_hash is None
-    assert record.warnings == ("SOURCE_CHANGED",)
+    assert record.warnings[0] == "SOURCE_CHANGED"
+    assert record.warnings[1].startswith("fields: size")
 
 
 def test_unreadable_file_error_does_not_keep_raw_diagnostics(tmp_path, monkeypatch):
@@ -92,6 +94,38 @@ def test_unreadable_file_error_does_not_keep_raw_diagnostics(tmp_path, monkeypat
     assert record.status == DiscoveryStatus.FAILED
     assert record.warnings == ("SOURCE_UNREADABLE",)
     assert "synthetic-sensitive-diagnostic" not in repr(record)
+
+
+def test_mtime_only_change_still_fingerprints(tmp_path, monkeypatch):
+    source = tmp_path / "report.pdf"
+    source.write_bytes(b"synthetic stable bytes")
+    original_fstat = discovery.os.fstat
+
+    def touch_mtime(descriptor):
+        result = original_fstat(descriptor)
+        if stat.S_ISREG(result.st_mode):
+            return os.stat_result(
+                (
+                    result.st_mode,
+                    result.st_ino,
+                    result.st_dev,
+                    result.st_nlink,
+                    result.st_uid,
+                    result.st_gid,
+                    result.st_size,
+                    result.st_atime,
+                    result.st_mtime + 1,
+                    result.st_ctime + 1,
+                )
+            )
+        return result
+
+    monkeypatch.setattr(discovery.os, "fstat", touch_mtime)
+    (record,) = discover_sources(tmp_path).records
+    assert record.status == DiscoveryStatus.READY
+    assert record.content_hash is not None
+    assert "METADATA_TOUCHED" in record.warnings
+    assert "mtime_ns" in record.warnings[1]
 
 
 def test_directory_depth_limit_is_visible(tmp_path, monkeypatch):

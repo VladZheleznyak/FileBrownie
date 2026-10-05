@@ -190,6 +190,6 @@ def test_ocr_failure_is_visible_and_not_cached(repository, folders):
 def test_reader_only_scans_do_not_run_interpretation(repository, folders):
     source, data = folders
     pdf_lines(source / "labs.pdf", LAB_LINES)
-    generation = scan_sources(repository, source, data)
+    generation, _difference = scan_sources(repository, source, data)
     assert facts(repository) == []
     assert repository.facts.unit_outcomes(generation) == []

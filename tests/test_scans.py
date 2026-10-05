@@ -38,7 +38,7 @@ def test_scan_links_duplicate_sources_and_reuses_pdf_and_jpeg_cache(
     (source / "copy.PDF").write_bytes((source / "a.pdf").read_bytes())
     Image.new("RGB", (40, 40), "white").save(source / "photo.jpg")
     (source / "unsupported.zip").write_bytes(b"synthetic archive")
-    first = scan.scan_sources(repository, source, data)
+    first, _ = scan.scan_sources(repository, source, data)
     first_reads = repository.generation_reads(first)
     assert len(first_reads) == 2
     assert sorted(item.sources for item in first_reads) == [["a.pdf", "copy.PDF"], ["photo.jpg"]]
@@ -50,7 +50,7 @@ def test_scan_links_duplicate_sources_and_reuses_pdf_and_jpeg_cache(
         pytest.fail("Unchanged source was parsed again")
 
     monkeypatch.setattr(scan, "read_document", unexpected)
-    second = scan.scan_sources(repository, source, data)
+    second, _ = scan.scan_sources(repository, source, data)
     assert all(item.cache_hit for item in repository.generation_reads(second))
     assert {item.reference for item in repository.generation_reads(second)} == {
         item.reference for item in first_reads
@@ -62,7 +62,7 @@ def test_scan_links_duplicate_sources_and_reuses_pdf_and_jpeg_cache(
 def test_corrupt_or_missing_cache_artifacts_trigger_new_read(repository, scan_folders, artifact):
     source, data = scan_folders
     pdf(source / "a.pdf")
-    first = scan.scan_sources(repository, source, data)
+    first, _ = scan.scan_sources(repository, source, data)
     (prior,) = repository.generation_reads(first)
     directory = data / "evidence" / str(prior.reference)
     if artifact == "result":
@@ -71,7 +71,7 @@ def test_corrupt_or_missing_cache_artifacts_trigger_new_read(repository, scan_fo
         (directory / "pages" / "000001.png").write_bytes(b"synthetic corrupt raster")
     else:
         (directory / "pages" / "000001.png").unlink()
-    second = scan.scan_sources(repository, source, data)
+    second, _ = scan.scan_sources(repository, source, data)
     (current,) = repository.generation_reads(second)
     assert not current.cache_hit
     assert current.reference != prior.reference
@@ -83,12 +83,12 @@ def test_reader_version_change_and_changed_source_do_not_reuse_stale_cache(
 ):
     source, data = scan_folders
     pdf(source / "a.pdf")
-    first = scan.scan_sources(repository, source, data)
+    first, _ = scan.scan_sources(repository, source, data)
     monkeypatch.setattr(scan, "reader_fingerprint", lambda: "f" * 64)
-    second = scan.scan_sources(repository, source, data)
+    second, _ = scan.scan_sources(repository, source, data)
     assert not repository.generation_reads(second)[0].cache_hit
     pdf(source / "a.pdf", "Synthetic changed evidence")
-    third = scan.scan_sources(repository, source, data)
+    third, _ = scan.scan_sources(repository, source, data)
     assert not repository.generation_reads(third)[0].cache_hit
     assert repository.generation_reads(third)[0].content_hash != (
         repository.generation_reads(first)[0].content_hash
@@ -110,12 +110,12 @@ def test_interrupt_preserves_completed_cache_for_next_generation(
 
     monkeypatch.setattr(scan, "read_document", interrupted)
     with pytest.raises(KeyboardInterrupt):
-        scan.scan_sources(repository, source, data)
+        _, _ = scan.scan_sources(repository, source, data)
     (generation,) = repository.generations()
     assert generation.state == "interrupted"
     assert len(repository.generation_reads(generation.id)) == 1
     monkeypatch.setattr(scan, "read_document", original)
-    second = scan.scan_sources(repository, source, data)
+    second, _ = scan.scan_sources(repository, source, data)
     reads = repository.generation_reads(second)
     assert len(reads) == 2
     assert {item.sources[0]: item.cache_hit for item in reads} == {"a.pdf": True, "b.pdf": False}
@@ -140,7 +140,7 @@ def test_source_changes_during_scan_invalidate_generation(
         return result
 
     monkeypatch.setattr(scan, "read_document", change_after_read)
-    identifier = scan.scan_sources(repository, source, data)
+    identifier, _ = scan.scan_sources(repository, source, data)
     (generation,) = repository.generations()
     assert generation.id == identifier
     assert generation.state == "invalid"
@@ -163,8 +163,8 @@ def test_failed_documents_are_reported_and_retried_without_cache(
         return original(*args)
 
     monkeypatch.setattr(scan, "read_document", counted)
-    first = scan.scan_sources(repository, source, data)
-    second = scan.scan_sources(repository, source, data)
+    first, _ = scan.scan_sources(repository, source, data)
+    second, _ = scan.scan_sources(repository, source, data)
     assert calls == 2
     for identifier in (first, second):
         (record,) = repository.generation_reads(identifier)
@@ -201,7 +201,10 @@ def test_reader_scan_cli_and_generation_inspection(repository, scan_folders, mon
     assert cli.main(["scan", "--readers-only"]) == 0
     output = capsys.readouterr().out
     assert "Discovering sources." in output
-    assert "Supported files: 1; unsupported files: 0; unique contents to process: 1." in output
+    assert (
+        "Supported files: 1; unsupported files: 0; fingerprinted and ready: 1; "
+        "unique contents to process: 1."
+    ) in output
     assert "[1/1] reading: a.pdf (pdf)." in output
     assert "[1/1] cached reader: a.pdf (pdf, 1 page)." in output
     assert "Rechecking sources." in output
@@ -242,7 +245,10 @@ def test_full_scan_cli_prints_page_progress_without_document_text(
     assert cli.main(["scan"]) == 0
     first = capsys.readouterr().out
     assert "Checking that this scan cannot reach the internet." in first
-    assert "Supported files: 2; unsupported files: 1; unique contents to process: 2." in first
+    assert (
+        "Supported files: 2; unsupported files: 1; fingerprinted and ready: 2; "
+        "unique contents to process: 2."
+    ) in first
     assert "[1/2] reading: labs.pdf (pdf)." in first
     assert "page 1/1: text layer" in first
     assert "page 1/1: vision" in first

@@ -67,10 +67,11 @@ def test_skipped_source_makes_inventory_incomplete(tmp_path, monkeypatch, capsys
 
 def test_scan_progress_lines_name_the_file_and_page_without_document_text():
     inventory = format_scan_progress(
-        ScanProgress(stage="inventory", supported=2, unsupported=1, skipped=1, unique=1)
+        ScanProgress(stage="inventory", supported=2, unsupported=1, skipped=1, unique=1, ready=1)
     )
     assert inventory == (
-        "Supported files: 2; unsupported files: 1; skipped files: 1; unique contents to process: 1."
+        "Supported files: 2; unsupported files: 1; skipped files: 1; "
+        "fingerprinted and ready: 1; unique contents to process: 1."
     )
     document = format_scan_progress(
         ScanProgress(

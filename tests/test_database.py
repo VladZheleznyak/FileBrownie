@@ -113,7 +113,8 @@ def test_cli_saved_inventory_and_validation(repository, tmp_path, monkeypatch, c
     (source / "report.pdf").write_bytes(b"synthetic changed")
     assert cli.main(["validate", str(generation_id)]) == 1
     output = capsys.readouterr().out
-    assert "Changed: 1" in output
+    assert "changed: 1" in output
+    assert "content_hash" in output
     assert "Generation state: invalid" in output
 
 

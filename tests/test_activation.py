@@ -36,13 +36,14 @@ def pdf(path, label="Synthetic laboratory evidence"):
 
 def scan(repository, folders):
     source, data = folders
-    return scan_sources(repository, source, data, kind="scan")
+    generation_id, _difference = scan_sources(repository, source, data, kind="scan")
+    return generation_id
 
 
 def test_inventory_and_reader_generations_cannot_activate(repository, folders):
     source, data = folders
     pdf(source / "a.pdf")
-    reader = scan_sources(repository, source, data)
+    reader, _difference = scan_sources(repository, source, data)
     with pytest.raises(DatabaseError, match="^GENERATION_NOT_ACTIVATABLE$"):
         repository.activate(reader, discover_sources(source))
     assert repository.active_generation_id() is None

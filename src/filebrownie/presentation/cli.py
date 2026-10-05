@@ -15,6 +15,7 @@ from filebrownie import __version__, diagnostics, logs, provisioning
 from filebrownie.evidence.network import NetworkIsolationError, ensure_isolated_network
 from filebrownie.evidence.ocr import TesseractOcr
 from filebrownie.evidence.readers import ReaderError, inspect_evidence, read_document
+from filebrownie.ingestion.consistency import InventoryDifference
 from filebrownie.ingestion.discovery import DiscoveryStatus, InventoryError, discover_sources
 from filebrownie.ingestion.scan import run_full_scan, scan_sources
 from filebrownie.interpretation.llama_vision import LlamaVisionClient
@@ -101,6 +102,22 @@ def inventory(save: bool = False) -> int:
     except KeyboardInterrupt:
         print("OPERATION_INTERRUPTED", file=sys.stderr)
         return 130
+
+
+def _print_inventory_difference(difference: InventoryDifference) -> None:
+    if difference.consistent:
+        return
+    print("Source inventory no longer matches the start of this operation:")
+    for label in ("added", "removed", "changed", "unverifiable"):
+        paths = getattr(difference, label)
+        if not paths:
+            continue
+        print(f"  {label}: {len(paths)}")
+        detail_map = dict(difference.changed_details)
+        for path in paths:
+            extra = detail_map.get(path)
+            suffix = f" ({extra})" if extra else ""
+            print(f"    {safe(path)}{suffix}")
 
 
 def _sample_paths(paths: Sequence[str], limit: int = _SUMMARY_SAMPLE_PATHS) -> str:
@@ -363,6 +380,8 @@ def full_scan() -> int:
             _log_scan(repository, data, operation, outcome, time.monotonic() - started)
             if outcome.activation is None:
                 print(f"Generation stays {outcome.blocked or 'staged'}; it is not queryable.")
+                if outcome.inventory_difference is not None:
+                    _print_inventory_difference(outcome.inventory_difference)
                 return 1
             result = outcome.activation
             if result.activated:
@@ -746,11 +765,7 @@ def database_command(command: str, generation_id: UUID | None = None) -> int:
                 return 0
             repository.load_inventory(generation_id)
             difference = repository.revalidate(generation_id, discover_sources(source))
-            for label in ("added", "removed", "changed", "unverifiable"):
-                paths = getattr(difference, label)
-                print(f"{label.capitalize()}: {len(paths)}")
-                for path in paths:
-                    print(f"  {safe(path)}")
+            _print_inventory_difference(difference)
             generation = next(item for item in repository.generations() if item.id == generation_id)
             print(f"Generation state: {generation.state}")
             print("This does not activate a medical index or establish extraction coverage.")
@@ -770,7 +785,7 @@ def reader_scan() -> int:
     try:
         source, data = configured_paths()
         with operation_lock(data), open_repository() as repository:
-            generation_id = scan_sources(
+            generation_id, _ = scan_sources(
                 repository, source, data, progress=scanning_progress(full_scan=False)
             )
             show_generation(repository, generation_id)

@@ -14,6 +14,7 @@ class ScanProgress:
     skipped: int = 0
     failed: int = 0
     unique: int = 0
+    ready: int = 0
     unit: int = 0
     pages: int | None = None
     source: str = ""

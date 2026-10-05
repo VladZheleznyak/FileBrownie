@@ -77,9 +77,12 @@ def format_scan_progress(event: ScanProgress) -> str:
                 extra += f" skipped files: {event.skipped};"
             if event.failed:
                 extra += f" unreadable files: {event.failed};"
+            ready_text = (
+                f" fingerprinted and ready: {event.ready};" if event.ready else ""
+            )
             line = (
                 f"Supported files: {event.supported}; unsupported files: {event.unsupported};"
-                f"{extra} unique contents to process: {event.unique}."
+                f"{extra}{ready_text} unique contents to process: {event.unique}."
             )
             return _decorate(line, event)
         case "document":

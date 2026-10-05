@@ -88,7 +88,7 @@ def test_reachable_internet_refuses_the_scan_before_any_state_changes(
     monkeypatch.setattr(scan_module, "ensure_no_outbound", reachable)
     vision = FakeVision(ROWS)
     with pytest.raises(NetworkIsolationError, match="OUTBOUND_NETWORK_REACHABLE"):
-        scan_sources(repository, source, data, "scan", None, vision)
+        _, _ = scan_sources(repository, source, data, "scan", None, vision)
     assert vision.calls == 0
     assert len(repository.generations()) == 1
     assert repository.active_generation_id() == first.generation_id
