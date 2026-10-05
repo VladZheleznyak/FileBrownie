@@ -18,6 +18,7 @@ from filebrownie.evidence.readers import ReaderError, inspect_evidence, read_doc
 from filebrownie.ingestion.discovery import DiscoveryStatus, InventoryError, discover_sources
 from filebrownie.ingestion.scan import run_full_scan, scan_sources
 from filebrownie.interpretation.llama_vision import LlamaVisionClient
+from filebrownie.presentation.progress import scanning_progress
 from filebrownie.presentation.render import render, safe
 from filebrownie.query.history import QueryError, run_query, source_text
 from filebrownie.query.timeline import RangeError, parse_range
@@ -265,7 +266,9 @@ def full_scan() -> int:
         with operation_lock(data), open_repository() as repository:
             operation, started = uuid4(), time.monotonic()
             logs.log_event(data, "scan", "scan_started", operation=str(operation))
-            outcome = run_full_scan(repository, source, data, ocr, vision)
+            outcome = run_full_scan(
+                repository, source, data, ocr, vision, progress=scanning_progress(full_scan=True)
+            )
             show_generation(repository, outcome.generation_id)
             show_interpretation(repository, outcome.generation_id)
             _log_scan(repository, data, operation, outcome, time.monotonic() - started)
@@ -675,7 +678,9 @@ def reader_scan() -> int:
     try:
         source, data = configured_paths()
         with operation_lock(data), open_repository() as repository:
-            generation_id = scan_sources(repository, source, data)
+            generation_id = scan_sources(
+                repository, source, data, progress=scanning_progress(full_scan=False)
+            )
             show_generation(repository, generation_id)
             generation = next(item for item in repository.generations() if item.id == generation_id)
             reads = repository.generation_reads(generation_id)
@@ -791,6 +796,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     scan = commands.add_parser(
         "scan",
         help="Scan one folder through readers, OCR, vision, and activation.",
+        description=(
+            "Scan one folder through readers, OCR, vision, and activation. "
+            "Progress is printed as each file and page is processed, "
+            "with an ETA from separate pdf and jpeg rates."
+        ),
     )
     scan.add_argument(
         "--readers-only",

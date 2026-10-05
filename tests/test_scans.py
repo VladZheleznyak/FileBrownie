@@ -3,7 +3,9 @@ from contextlib import contextmanager
 import pymupdf
 import pytest
 from PIL import Image
+from support import FakeVision
 
+from filebrownie.evidence.models import TextSpan
 from filebrownie.ingestion import scan
 from filebrownie.ingestion.discovery import discover_sources
 from filebrownie.presentation import cli
@@ -198,6 +200,69 @@ def test_reader_scan_cli_and_generation_inspection(repository, scan_folders, mon
     assert cli.main(["evidence", "generation", str(identifier)]) == 0
     assert cli.main(["scan", "--readers-only"]) == 0
     output = capsys.readouterr().out
+    assert "Discovering sources." in output
+    assert "Supported files: 1; unsupported files: 0; unique contents to process: 1." in output
+    assert "[1/1] reading: a.pdf (pdf)." in output
+    assert "[1/1] cached reader: a.pdf (pdf, 1 page)." in output
+    assert "Rechecking sources." in output
+    assert "Synthetic laboratory evidence" not in output
     assert "state: staged" in output
     assert "cached: yes" in output
     assert "no OCR, vision, or medical interpretation" in output
+
+
+class _QuietOcr:
+    version = "test-ocr"
+
+    def __init__(self, _models):
+        pass
+
+    def read(self, _image):
+        return (TextSpan("ZEBRA-PROGRESS-9912", (1, 1, 8, 8), "ocr"),)
+
+
+def test_full_scan_cli_prints_page_progress_without_document_text(
+    repository, scan_folders, monkeypatch, capsys
+):
+    source, data = scan_folders
+    pdf(source / "labs.pdf")
+    Image.new("RGB", (40, 40), "white").save(source / "photo.jpg")
+    (source / "notes.txt").write_bytes(b"not a medical file")
+    monkeypatch.setenv("FILEBROWNIE_SOURCE_DIR", str(source))
+    monkeypatch.setenv("FILEBROWNIE_DATA_DIR", str(data))
+    monkeypatch.setenv("FILEBROWNIE_MODEL_DIR", str(scan_folders[1]))
+
+    @contextmanager
+    def local_repository():
+        yield repository
+
+    monkeypatch.setattr(cli, "open_repository", local_repository)
+    monkeypatch.setattr(cli, "TesseractOcr", _QuietOcr)
+    monkeypatch.setattr(cli, "LlamaVisionClient", lambda _url, _models: FakeVision({}))
+    assert cli.main(["scan"]) == 0
+    first = capsys.readouterr().out
+    assert "Checking that this scan cannot reach the internet." in first
+    assert "Supported files: 2; unsupported files: 1; unique contents to process: 2." in first
+    assert "[1/2] reading: labs.pdf (pdf)." in first
+    assert "page 1/1: text layer" in first
+    assert "page 1/1: vision" in first
+    assert "page 1/1: vision (cached)" not in first
+    assert "ETA " in first
+    assert "jpeg ~" in first
+    assert "[2/2] reading: photo.jpg (jpeg)." in first
+    assert "page 1/1: OCR" in first
+    assert "page 1/1: OCR (cached)" not in first
+    assert "Recording terminology proposals." in first
+    assert "Rechecking sources." in first
+    assert "Checking activation." in first
+    assert "ZEBRA-PROGRESS-9912" not in first
+    assert "Synthetic laboratory evidence" not in first
+
+    assert cli.main(["scan"]) == 0
+    second = capsys.readouterr().out
+    assert "[1/2] cached reader: labs.pdf (pdf, 1 page)." in second
+    assert "page 1/1: text layer" in second
+    assert "page 1/1: vision (cached)" in second
+    assert "page 1/1: OCR (cached)" in second
+    assert "ETA " in second
+    assert "ZEBRA-PROGRESS-9912" not in second
