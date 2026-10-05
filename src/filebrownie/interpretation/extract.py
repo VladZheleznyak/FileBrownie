@@ -7,6 +7,7 @@ from decimal import Decimal, InvalidOperation
 from filebrownie.evidence.models import TextSpan
 from filebrownie.evidence.normalize import contains_token, fold_signs, normalize
 from filebrownie.interpretation.dates import DateValue, parse_date
+from filebrownie.interpretation.filename_dates import consensus_filename_dates
 from filebrownie.interpretation.grounding import (
     PageText,
     Row,
@@ -332,6 +333,42 @@ def _shared_result_row(page: PageText, label: str, value: str) -> Row | None:
     return shared[0] if shared else None
 
 
+def _apply_filename_timeline(fact: LabFact, source_paths: Sequence[str]) -> LabFact:
+    if fact.timeline.alternatives:
+        return fact
+    alternatives = consensus_filename_dates(source_paths)
+    if not alternatives:
+        return fact
+    raw = f"filename: {alternatives[0].start.isoformat()}"
+    filename_date = ReportedDate(
+        raw,
+        "filename",
+        alternatives,
+        (),
+        planned=False,
+        role_supported=False,
+    )
+    notes = tuple(dict.fromkeys((*fact.notes, "FILENAME_DATE_INFERRED")))
+    return LabFact(
+        fact.raw_label,
+        fact.raw_value,
+        fact.comparator,
+        fact.value_number,
+        fact.qualitative,
+        fact.unit,
+        fact.reference_interval,
+        fact.flag,
+        fact.specimen,
+        (*fact.dates, filename_date),
+        Timeline("filename", alternatives),
+        fact.verification,
+        fact.evidence,
+        fact.alternative_label,
+        fact.alternative_evidence,
+        notes,
+    )
+
+
 def _lab_fact(page: PageText, vision: VisionPage, row: VisionLabRow) -> LabFact:
     grounding = ground_lab_row(page, row.label, row.value, row.unit, row.specimen)
     dates = _dates(page, _lab_dates(row, vision.dates))
@@ -569,9 +606,16 @@ def _event_fact(page: PageText, vision: VisionPage, event: VisionEvent) -> Event
     )
 
 
-def interpret_page(spans: Sequence[TextSpan], vision: VisionPage) -> UnitInterpretation:
+def interpret_page(
+    spans: Sequence[TextSpan],
+    vision: VisionPage,
+    source_paths: Sequence[str] = (),
+) -> UnitInterpretation:
     page = PageText.build(spans)
-    lab_facts = tuple(_lab_fact(page, vision, row) for row in vision.lab_rows)
+    lab_facts = tuple(
+        _apply_filename_timeline(_lab_fact(page, vision, row), source_paths)
+        for row in vision.lab_rows
+    )
     # Events without source wording, or mention-only wording, stay out of visit rows (D36).
     events = tuple(
         fact

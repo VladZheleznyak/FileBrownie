@@ -794,3 +794,17 @@ product gates. They remain unverified until implemented and checked.
 Deferred work stays in the pivot's vNext backlog. The user checks real data
 after Phase 1 implementation delivery and defines follow-up tasks (D37). Logging
 centralization is Phase 2 hardening (D39), not an additional Phase 1 prerequisite.
+
+### D45 - Filename-date fallback for laboratory timelines
+
+When a laboratory fact has no timeline from grounded, role-supported dates in
+the document body, the extractor may infer a single calendar period from the
+source `relative_path` (basename first, then parent segments). The inference
+applies only when every path for the same content hash agrees on that period;
+conflicting paths leave the fact undated.
+
+Inferred dates use role `filename`, are never treated as verified document
+evidence, carry note `FILENAME_DATE_INFERRED`, and do not change reading
+verification. History queries label them `inferred from filename` and include
+them in date-range filters when the window overlaps the inferred period.
+Modification-time hints remain deferred (D30).

@@ -73,6 +73,15 @@ def scan_sources(
         inventory = discover_sources(source)
         repository.save_inventory(generation_id, inventory, finalize=False)
         work = _work_items(inventory)
+        paths_by_identity: dict[tuple[str, str], list[str]] = {}
+        for record in inventory.records:
+            if (
+                record.status == DiscoveryStatus.READY
+                and record.content_hash
+                and record.format
+            ):
+                identity = (record.content_hash, record.format.value)
+                paths_by_identity.setdefault(identity, []).append(record.relative_path)
         _report(
             progress,
             stage="inventory",
@@ -128,8 +137,17 @@ def scan_sources(
                     pages=evidence.page_count,
                 )
             if kind == "scan" and result is not None:
+                source_paths = tuple(sorted(paths_by_identity.get(identity, [record.relative_path])))
                 status, file_warnings, units = process_content(
-                    repository, data, result.reference, *identity, evidence, ocr, vision, progress
+                    repository,
+                    data,
+                    result.reference,
+                    *identity,
+                    evidence,
+                    ocr,
+                    vision,
+                    progress,
+                    source_paths,
                 )
                 warnings = sorted(set(file_warnings))
                 shown = tuple(

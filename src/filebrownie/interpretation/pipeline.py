@@ -101,6 +101,7 @@ def _process_unit(
     vision: VisionClient | None,
     progress: ProgressFn | None = None,
     page_count: int | None = None,
+    source_paths: tuple[str, ...] = (),
 ) -> UnitRecord:
     warnings = list(unit.warnings)
     if unit.status in (ProcessingStatus.FAILED, ProcessingStatus.SKIPPED) or unit.raster is None:
@@ -178,7 +179,7 @@ def _process_unit(
         except VisionError as error:
             failures.append(str(error) if str(error).startswith("VISION_") else "VISION_FAILED")
         else:
-            interpretation = interpret_page(spans, page)
+            interpretation = interpret_page(spans, page, source_paths)
             page_text = PageText.build(spans)
             covered = {
                 index
@@ -234,7 +235,7 @@ def _process_unit(
                         }
                     )
                     page = merge_vision_lab_rows(page, extra)
-                    interpretation = interpret_page(spans, page)
+                    interpretation = interpret_page(spans, page, source_paths)
                 except VisionError:
                     pass
     if interpretation is not None:
@@ -267,6 +268,7 @@ def process_content(
     ocr: OcrEngine | None,
     vision: VisionClient | None,
     progress: ProgressFn | None = None,
+    source_paths: tuple[str, ...] = (),
 ) -> tuple[str, Sequence[str], tuple[UnitRecord, ...]]:
     """Return the file status, file-level warnings, and per-unit records for one content."""
     units = tuple(
@@ -281,6 +283,7 @@ def process_content(
             vision,
             progress,
             evidence.page_count,
+            source_paths,
         )
         for unit in evidence.units
     )

@@ -353,6 +353,8 @@ def _lab_row(fact: dict, placement: str, match, verification_markers: list[str])
         markers.append("may fall within range")
     if match.status == "auto-mapped":
         markers.append("auto-mapped, unreviewed")
+    if fact["timeline_role"] == "filename" or "FILENAME_DATE_INFERRED" in fact["notes"]:
+        markers.append("inferred from filename")
     value = fact["raw_value"]
     fields = {
         "label": fact["raw_label"],
