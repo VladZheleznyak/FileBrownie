@@ -263,7 +263,8 @@ def _process_unit(
             }
             hints = vision_lab_row_hints(page_text, covered)
             if hints:
-                supplement_version = f"{vision.version};supplement={hashlib.sha256('|'.join(hints).encode()).hexdigest()[:8]}"
+                hint_digest = hashlib.sha256("|".join(hints).encode()).hexdigest()[:8]
+                supplement_version = f"{vision.version};supplement={hint_digest}"
 
                 def supplement() -> dict:
                     try:
