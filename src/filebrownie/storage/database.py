@@ -443,6 +443,9 @@ class Repository:
     def fact_counts(self, generation_id: UUID) -> dict[ContentKey, int]:
         return self.facts.fact_counts(generation_id)
 
+    def verified_fact_counts(self, generation_id: UUID) -> dict[ContentKey, int]:
+        return self.facts.verified_fact_counts(generation_id)
+
     def _guard_findings(self, generation_id: UUID) -> tuple[Finding, ...]:
         candidate = self.outcomes(generation_id)
         active_id = self.active_generation_id()
@@ -463,6 +466,8 @@ class Repository:
             self.fact_counts(active_id),
             self.source_entries(generation_id),
             self.source_entries(active_id),
+            candidate_verified_facts=self.verified_fact_counts(generation_id),
+            active_verified_facts=self.verified_fact_counts(active_id),
         )
 
     def activate(

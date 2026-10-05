@@ -6,6 +6,7 @@ from PIL import Image
 
 from filebrownie.ingestion.discovery import discover_sources
 from filebrownie.ingestion.guard import (
+    Finding,
     Outcome,
     SourceEntry,
     evaluate_replacement,
@@ -213,6 +214,36 @@ def test_guard_flags_worse_status_new_warnings_and_fewer_facts():
     assert not evaluate_replacement({}, {}, {}, {}, entries, entries)
     assert not has_usable_evidence({key: Outcome("failed", frozenset(), 0)})
     assert not has_usable_evidence({key: Outcome("completed", frozenset(), 0)})
+
+
+def test_guard_flags_fewer_verified_facts_separately():
+    key = ("a" * 64, "pdf")
+    before = Outcome("completed", frozenset(), 1, ("a.pdf",))
+    after = Outcome("completed", frozenset(), 1, ("a.pdf",))
+    findings = evaluate_replacement(
+        {key: after},
+        {key: before},
+        {key: 3},
+        {key: 3},
+        (),
+        (),
+        candidate_verified_facts={key: 1},
+        active_verified_facts={key: 3},
+    )
+    assert [item.kind for item in findings] == ["fewer verified facts"]
+
+
+def test_summarize_guard_fact_regressions(capsys):
+    findings = (
+        Finding("fewer extracted facts", ("a.pdf",), "10 -> 0"),
+        Finding("fewer extracted facts", ("b.pdf",), "118 -> 49"),
+        Finding("fewer verified facts", ("b.pdf",), "90 -> 40"),
+    )
+    cli.summarize_guard_fact_regressions(findings)
+    text = capsys.readouterr().out
+    assert "128 -> 49" in text
+    assert "2 to zero" in text or "to zero" in text
+    assert "verified facts" in text
 
 
 def test_images_count_as_usable_partial_evidence(repository, folders):

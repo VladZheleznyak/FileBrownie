@@ -196,7 +196,38 @@ def _summarize_coverage_detail(detail: str) -> str:
     return ", ".join(summary)
 
 
+def summarize_guard_fact_regressions(findings) -> None:
+    """Aggregate fact-count guard findings for terminal output."""
+    extracted = [item for item in findings if item.kind == "fewer extracted facts"]
+    if extracted:
+        total_before = total_after = 0
+        to_zero = 0
+        for item in extracted:
+            before, after = item.detail.split(" -> ", 1)
+            total_before += int(before)
+            total_after += int(after)
+            if int(after) == 0:
+                to_zero += 1
+        print(
+            "  Guard summary: extracted facts on unchanged content "
+            f"{total_before} -> {total_after} across {len(extracted)} file(s)"
+            f"{f'; {to_zero} to zero' if to_zero else ''}."
+        )
+    verified = [item for item in findings if item.kind == "fewer verified facts"]
+    if verified:
+        total_before = total_after = 0
+        for item in verified:
+            before, after = item.detail.split(" -> ", 1)
+            total_before += int(before)
+            total_after += int(after)
+        print(
+            "  Guard summary: verified facts on unchanged content "
+            f"{total_before} -> {total_after} across {len(verified)} file(s)."
+        )
+
+
 def show_findings(findings) -> None:
+    summarize_guard_fact_regressions(findings)
     grouped: dict[tuple[str, str], list[str]] = {}
     for item in findings:
         key = (item.kind, item.detail)

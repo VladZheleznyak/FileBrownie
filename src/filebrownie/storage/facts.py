@@ -196,6 +196,18 @@ class FactStore:
         ).fetchall()
         return {(row["content_hash"], row["format"]): row["total"] for row in rows}
 
+    def verified_fact_counts(self, generation_id: UUID) -> dict[tuple[str, str], int]:
+        rows = self.connection.execute(
+            "SELECT content_hash, format, count(*) AS total FROM ("
+            "SELECT content_hash, format FROM lab_results "
+            "WHERE generation_id = %s AND verification = 'verified' "
+            "UNION ALL SELECT content_hash, format FROM specialty_events "
+            "WHERE generation_id = %s AND verification = 'verified'"
+            ") facts GROUP BY content_hash, format",
+            (generation_id, generation_id),
+        ).fetchall()
+        return {(row["content_hash"], row["format"]): row["total"] for row in rows}
+
     def cached_step(self, cache_key: str) -> dict | None:
         row = self.connection.execute(
             "SELECT payload FROM step_cache WHERE cache_key = %s", (cache_key,)

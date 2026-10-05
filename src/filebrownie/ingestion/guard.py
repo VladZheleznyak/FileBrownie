@@ -54,6 +54,9 @@ def evaluate_replacement(
     active_facts: Mapping[ContentKey, int],
     candidate_entries: tuple[SourceEntry, ...],
     active_entries: tuple[SourceEntry, ...],
+    *,
+    candidate_verified_facts: Mapping[ContentKey, int] | None = None,
+    active_verified_facts: Mapping[ContentKey, int] | None = None,
 ) -> tuple[Finding, ...]:
     """Compare unchanged content at file granularity; removed sources are never regressions."""
     findings: list[Finding] = []
@@ -70,6 +73,10 @@ def evaluate_replacement(
         was, is_ = active_facts.get(key, 0), candidate_facts.get(key, 0)
         if is_ < was:
             findings.append(Finding("fewer extracted facts", now.sources, f"{was} -> {is_}"))
+        if candidate_verified_facts is not None and active_verified_facts is not None:
+            was_v, is_v = active_verified_facts.get(key, 0), candidate_verified_facts.get(key, 0)
+            if is_v < was_v:
+                findings.append(Finding("fewer verified facts", now.sources, f"{was_v} -> {is_v}"))
     previous = {entry.relative_path: entry.status for entry in active_entries}
     for key, now in sorted(candidate.items()):
         if key in active:
