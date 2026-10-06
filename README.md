@@ -14,7 +14,7 @@ and passes its synthetic checks: bounded PDF/JPEG readers, Tesseract OCR, a loca
 vision model, grounded fact verification, generation activation, dictionary-aware
 `labs` and `visits` histories, manual checks, and erasure. It has **not** been
 evaluated on real documents, and nothing here establishes extraction accuracy or
-completeness; check results against the source documents (D37). Start with
+completeness; check results against the source documents. Start with
 [Getting started](#getting-started). Implementation detail is in
 [Phase 1 workflow](#phase-1-workflow).
 
@@ -248,7 +248,7 @@ Restoring earlier bytes does not reset an invalid generation. A matching
 inventory remains staged and does not establish extraction coverage.
 Validation exits `0` for a matching staged inventory, `1` for an invalid
 generation, and `2` for operational errors. Every activation, including forced
-activation, repeats the same inventory and fingerprint check (D42).
+activation, repeats the same inventory and fingerprint check.
 
 Saved filenames and fingerprints are sensitive derived data stored only in the
 external PostgreSQL data directory. The full scan, activation, histories,
@@ -461,7 +461,7 @@ If database rows are deleted but filesystem cleanup fails, the command reports
 
 ### Known limitations
 
-- Not evaluated on real documents. D36 and D41 (event/verification heuristics) stay provisional.
+- Not evaluated on real documents. Event and verification heuristics stay provisional.
 - `verified` shows text presence in one row; prose shaped like a result row can verify. Its
   evidence points at that prose, so inspect `evidence fact` for important results.
 - Skewed or rotated scans (other than EXIF/90-degree handling) mostly yield unverified readings.
