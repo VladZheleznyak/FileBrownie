@@ -1,16 +1,43 @@
 # FileBrownie architecture
 
-This document describes the Phase 1 architecture. It follows
-[the project pivot](../PROJECT_PIVOT_2026-10-03.md) and
-[the decision record](decisions.md), cited below as D-numbers. The pipeline is
-implemented and passes synthetic checks; it has not been evaluated on real
-documents. [Implemented baseline](#implemented-baseline) records the choices
-made during implementation. Synthetic success is not a claim of extraction
-accuracy, and D36/D41 remain provisional.
+FileBrownie is a private, local CLI for laboratory and specialty-visit histories
+from one folder of documents. Phase 1 delivers the pipeline; Phase 2 hardens
+operation without adding user features. Open work is listed in
+[todo.md](todo.md).
+
+The pipeline is implemented and passes synthetic checks; it has not been
+evaluated on real documents. [Implemented baseline](#implemented-baseline)
+records runtime choices. Synthetic success is not a claim of extraction
+accuracy. Specialty-event boundaries (D36, D41) stay provisional until
+user-led real-document review.
 
 The MVP stays simple (D30). Only architectural and essential correctness,
-privacy, and recovery choices require advance decisions. Optional conveniences
-and richer workflows belong to vNext.
+privacy, and recovery require fixed rules up front. Optional conveniences and
+richer workflows belong in [Not in the current phases](#not-in-the-current-phases).
+
+## Scope and constraints
+
+- **Audience:** one user, one patient folder; Phase 1 performs no patient-identity
+  checks.
+- **Inputs:** selectable-text or scanned PDF and JPG/JPEG only (D31). Other formats
+  are listed as unsupported; archives are not expanded. Password-protected PDFs,
+  handwriting interpretation, and medical-image interpretation are out of scope.
+  Printed or stamped text on handwritten pages is extracted as weaker evidence
+  with a handwriting flag.
+- **Outputs:** two query families—laboratory history by analyte or group, visit
+  history by specialty or group—with source references and visible uncertainty.
+  CLI labels and explanations are English; source labels and evidence keep
+  English, Russian, and Ukrainian text.
+- **Privacy:** originals are read-only and never modified. Generated medical data
+  lives outside the repository and Git. Medical processing uses local inference
+  only; setup may download public weights into isolated model storage.
+- **Environment:** Docker Compose on WSL; reference hardware is 31 GB WSL RAM and
+  12 GB VRAM. Reference workload is on the order of 120 files and hundreds of
+  pages; overnight indexing is acceptable. Representative queries should finish
+  within five minutes on reference hardware.
+- **Delivery:** Phase 1 and Phase 2 mechanics are in place. Accuracy is validated
+  only through user-led review and local manual checks—not through synthetic tests
+  alone.
 
 ## Runtime layout
 
@@ -122,8 +149,9 @@ require source consistency and a completed scan (D33, D35).
 
 ## Responsibilities
 
-The five responsibilities from the pivot map onto modules. Only the
-interpretation and query modules know medical concepts.
+PostgreSQL holds generations, the step cache, dictionary data, and user decisions
+so derived structure stays inspectable through a database console (D7). Extractor
+and schema versions are stored with facts so interpretations can be regenerated.
 
 1. **Ingestion:** discovers sources and records file identity and content hashes.
    Supports PDF and JPG/JPEG; records other formats as unsupported (D31).
@@ -215,18 +243,22 @@ Lab result, per D20 and D21:
 
 Specialty event, per D19, D21, and D41:
 
-- the raw specialty label and event type
+- the raw specialty label and event type (referral, appointment scheduled or
+  confirmed, encounter, procedure, result, discharge, invoice, recommendation,
+  or other)
 - source wording for recommendations represented as `other — recommendation`
 - evidence strength: `direct`, `indirect`, or `weak`
 - verification state: `verified`, `unverified reading`, or `conflicting`
 - dates with their metadata
 - the document class and references to evidence spans
 
-Provisionally, a document can yield multiple explicitly supported specialty
-events, each with its own evidence references (D36). Letterhead, specialty
-lists, and isolated stamps remain mention-only evidence unless an event is
-supported. Relevant keyword-sweep hits expose those mentions without creating
-visit rows. Recommendations are not promoted to referrals, scheduled
+Visit history is a flat timeline of specialty-related events, not episodes.
+Referrals and recommendations to arrange appointments must not become completed
+visits. Provisionally, a document can yield multiple explicitly supported
+specialty events, each with its own evidence references (D36). Letterhead,
+specialty lists, and isolated stamps remain mention-only evidence unless an
+event is supported. Relevant keyword-sweep hits expose those mentions without
+creating visit rows. Recommendations are not promoted to referrals, scheduled
 appointments, or encounters without evidence of those events. Revisit these
 boundaries after real-document evaluation; episode linking stays in vNext.
 
@@ -375,6 +407,43 @@ Decisions the earlier sections left open, as built:
   file under generated data, with an age limit; erase removes it (D39). No logging framework
   or JSON formatter; those are vNext integrations.
 
+## Not in the current phases
+
+Deferred product scope (vNext unless noted):
+
+- JSON log formatters, richer PII screening, Sentry adapters, and further
+  observability over the centralized local logging foundation—without external
+  telemetry or sending medical payloads off the machine.
+- TXT, CSV, XLSX, saved HTML, and ZIP readers with bounded expansion; format-specific
+  hostile-input tests; nested archives and password-protected content as separate
+  decisions.
+- CSV, JSON, and Markdown exports; decision backup/export; dictionary-seed
+  promotion; rendered evidence crops.
+- Reusable synthetic-fixture generator; modification-time date hints; semantic
+  duplicate heuristics beyond content-hash identity.
+- Dynamic document categories and fields; document linking; virtual folders;
+  inferred structure with human-approved schema changes.
+- Nonmedical domains (identity, insurance, immigration); multiple patients and
+  folders; additional sources (email, cloud documents) with per-document identity
+  checks.
+- Specialty episode grouping; autoscan; incremental ingestion; retention policies;
+  concurrent CLI access; richer activation policies and fact diffs.
+- MCP, browser UI, conversational interfaces, and broad natural-language questions.
+- Family-doctor summaries; marking/review workflows for OCR failures; advanced
+  conflict reconciliation and deduplication.
+- Region-level coverage overlays; richer table reconstruction, cross-page header
+  association, table recovery, and omission detection beyond keyword sweeps and
+  basic row-discrepancy warnings.
+- Model benchmarks, sampling tools, and automated evaluation pipelines.
+- Context-sensitive terminology mappings and richer dictionary review workflows.
+- Automatic unit normalization; optional vLLM vision backend; any external model
+  calls (each requires explicit human confirmation and the no-PII-outside rule).
+
+Phase 2 hardening without new features—repeatable install, recovery drills,
+egress and read-only reverification, centralized sanitized logging, latency
+measurement, and degraded-image fixtures—is implemented. Manual-check evaluation
+against real documents remains open; see [todo.md](todo.md).
+
 ## Open implementation decisions
 
 - Whether to revisit the OCR engine, vision model, and runtime after real-data
@@ -384,17 +453,14 @@ Decisions the earlier sections left open, as built:
   defaults documented in the README.
 - The text-layer quality heuristics (D4).
 
-Ordinary parameters above are implementation choices, not product-interview
-blockers. The architectural interview is resolved for the MVP, with D36 and
-D41 provisional pending real-data review; see
-[the decision record](decisions.md#architectural-interview-status).
-No implementation or model-quality claim follows from agreement on the plan.
+Ordinary parameters above are implementation choices, not product blockers. D36
+and D41 stay provisional until real-document review. Follow-up work is ordered
+in [todo.md](todo.md).
 
 ## Delivery and validation
 
-Phase 1 implementation delivery includes required mechanics, synthetic regression
-checks, private local processing, and visible known limitations. It does not
-require a private-original demonstration or formal multi-candidate benchmark.
-The user checks real data after delivery and sets follow-up tasks (D25, D37).
-Do not equate delivery or synthetic test success with measured extraction
-accuracy. Real-data results and manual checks remain sensitive local data.
+Delivery includes required mechanics, synthetic regression checks, private local
+processing, and visible known limitations. It does not require a private-original
+demonstration or formal multi-candidate benchmark. Do not equate delivery or
+synthetic test success with measured extraction accuracy. Real-data results and
+manual checks remain sensitive local data and stay out of Git.

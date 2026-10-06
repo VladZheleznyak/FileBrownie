@@ -2,18 +2,18 @@
 
 ## Current delivery scope
 
-- Follow `PROJECT_PIVOT_2026-10-03.md` for the agreed Phase 1, Phase 2, and vNext scope. It records planned behavior, not verified implementation status.
+- Follow [docs/architecture.md](docs/architecture.md) for Phase 1, Phase 2, and deferred scope. Open work is in [docs/todo.md](docs/todo.md).
 - Phase 1 is a local CLI for laboratory and specialty-visit histories from one medical-document folder. Phase 2 hardens those same capabilities without adding features. MCP, summaries, other document domains, and dynamic structure discovery belong to vNext.
-- Current input formats are selectable-text/scanned PDF and JPG/JPEG only (D31). TXT, CSV, XLSX, HTML, and ZIP processing belong to vNext; report unsupported files without parsing or expanding them.
+- Current input formats are selectable-text/scanned PDF and JPG/JPEG only. TXT, CSV, XLSX, HTML, and ZIP processing belong to vNext; report unsupported files without parsing or expanding them.
 - Keep source documents strictly read-only throughout both current phases. Keep generated medical data local and separate from originals and Git.
 - Use local inference and no external network access during medical processing. Public dependencies and model weights may be downloaded during separate setup; provision weights outside the image build.
 - Use English CLI labels and explanations while supporting English, Russian, and Ukrainian source evidence.
 - Preserve source references and expose known gaps and uncertainty. Do not claim complete extraction merely because parsing succeeded.
 - Keep the evidence foundation independent of medical types so future document domains can reuse it. Do not implement vNext features solely to preserve flexibility.
-- Keep the MVP simple. Resolve only decisions that block implementation architecture or required correctness, privacy, and recovery; defer optional features and richer workflows to vNext. Follow D29 through D44 for the latest scope refinements; D36 and D41 are provisional pending real-document evaluation.
-- Deliver Phase 1 implementation before user-led real-data evaluation (D37). Use synthetic fixtures and basic hardware checks during implementation; do not require a private-original demonstration or formal benchmark as a delivery gate.
-- Use sanitized operational logs only; do not capture medical CLI output or raw reader/model/database diagnostics into logs (D38). Phase 2 centralized local logging is in place; JSON formatters, richer PII screening, and Sentry adapters are future integrations (D39), with no external telemetry in current phases.
-- Keep network-enabled model setup isolated from source documents and generated medical data. Processing services never download missing weights; report a setup error instead (D38).
+- Keep the MVP simple. Resolve only decisions that block implementation architecture or required correctness, privacy, and recovery; defer optional features and richer workflows to vNext. Specialty-event heuristics stay provisional pending real-document evaluation.
+- Deliver Phase 1 implementation before user-led real-data evaluation. Use synthetic fixtures and basic hardware checks during implementation; do not require a private-original demonstration or formal benchmark as a delivery gate.
+- Use sanitized operational logs only; do not capture medical CLI output or raw reader/model/database diagnostics into logs. Phase 2 centralized local logging is in place; JSON formatters, richer PII screening, and Sentry adapters are future integrations, with no external telemetry in current phases.
+- Keep network-enabled model setup isolated from source documents and generated medical data. Processing services never download missing weights; report a setup error instead.
 
 ## Privacy
 

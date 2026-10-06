@@ -1,4 +1,4 @@
-"""Explicit N1–N3 probes from docs/mvp-state-review-2026-10-04-recheck-2.md."""
+"""Regression probes for signed results, qualitative result fields, and birth-date roles."""
 
 from support import row
 

@@ -27,10 +27,8 @@ JSON formatters, richer PII screening, and Sentry adapters remain future work.
 Current phases keep logs sanitized and enable no external telemetry. User-led
 real-data review is still open.
 
-- [Project pivot](PROJECT_PIVOT_2026-10-03.md): scope for Phase 1, Phase 2, and vNext
-- [Decision record](docs/decisions.md): resolved design decisions and their reasons
-- [Architecture](docs/architecture.md): intended components, data model, and flows
-- [Implementation checklist](docs/implementation-checklist.md): delivery and validation tasks for both phases
+- [Architecture](docs/architecture.md): scope, components, data model, and flows
+- [Todo](docs/todo.md): ordered remaining work
 
 ## Getting started
 
